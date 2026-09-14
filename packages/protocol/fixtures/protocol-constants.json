@@ -1,0 +1,100 @@
+{
+  "protocolVersion": 1,
+  "defaultPort": 8080,
+  "mdnsService": "_quranreader",
+  "mdnsProtocol": "tcp",
+  "headers": {
+    "authorization": "authorization",
+    "contentType": "content-type",
+    "protocolVersion": "x-qr-protocol",
+    "offset": "x-qr-offset",
+    "body": "x-qr-body",
+    "bodyEncodingBase64": "base64"
+  },
+  "contentTypes": {
+    "json": "application/json; charset=utf-8",
+    "octet": "application/octet-stream"
+  },
+  "paths": {
+    "deviceInfo": "/api/device/info",
+    "deviceStatus": "/api/device/status",
+    "library": "/api/library",
+    "libraryItemPrefix": "/api/library/",
+    "uploadBegin": "/api/library/upload",
+    "uploadPrefix": "/api/library/upload/",
+    "uploadChunkSuffix": "/chunk",
+    "uploadFinishSuffix": "/finish",
+    "backup": "/api/device/backup",
+    "restore": "/api/device/restore",
+    "photos": "/api/photos",
+    "photoPrefix": "/api/photos/",
+    "photoChunkSuffix": "/chunk",
+    "photoFinishSuffix": "/finish",
+    "deviceTime": "/api/device/time",
+    "firmwareBegin": "/api/firmware/begin",
+    "firmwareChunk": "/api/firmware/chunk",
+    "firmwareFinish": "/api/firmware/finish",
+    "firmwareAbort": "/api/firmware/abort"
+  },
+  "status": {
+    "ok": 200,
+    "created": 201,
+    "badRequest": 400,
+    "unauthorized": 401,
+    "notFound": 404,
+    "conflict": 409,
+    "payloadTooLarge": 413,
+    "unprocessable": 422,
+    "insufficientStorage": 507
+  },
+  "errors": [
+    {
+      "code": "BAD_REQUEST",
+      "status": 400
+    },
+    {
+      "code": "UNAUTHORIZED",
+      "status": 401
+    },
+    {
+      "code": "NOT_FOUND",
+      "status": 404
+    },
+    {
+      "code": "OFFSET_MISMATCH",
+      "status": 409
+    },
+    {
+      "code": "CHUNK_TOO_LARGE",
+      "status": 413
+    },
+    {
+      "code": "SIZE_MISMATCH",
+      "status": 422
+    },
+    {
+      "code": "VERIFY_FAILED",
+      "status": 422
+    },
+    {
+      "code": "PACKAGE_REJECTED",
+      "status": 422
+    },
+    {
+      "code": "NO_SPACE",
+      "status": 507
+    },
+    {
+      "code": "NO_SESSION",
+      "status": 404
+    },
+    {
+      "code": "STORAGE_ERROR",
+      "status": 507
+    },
+    {
+      "code": "NOT_IN_TRANSFER_MODE",
+      "status": 409
+    }
+  ]
+}

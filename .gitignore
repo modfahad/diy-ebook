@@ -1,0 +1,32 @@
+# Secrets -- never commit. dev_secrets.h holds real Wi-Fi credentials and a
+# pairing token (copy dev_secrets.example.h to create it).
+firmware/include/app/dev_secrets.h
+.env
+.env.*
+
+# Dependencies and build output
+node_modules/
+dist/
+firmware/.pio/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/schemas/
+
+# Made by desktop/scripts/prepare-standalone.mjs for each build
+desktop/src-tauri/binaries/
+desktop/src-tauri/bridge/
+
+# Expo: generated native projects (npx expo prebuild) and caches
+mobile/android/
+mobile/ios/
+mobile/.expo/
+
+# Fetched Quran text and translations: not redistributed from this repository
+# (docs/quran-content.md); fetch them with tools/arabic-pager.
+tools/arabic-pager/data/
+tools/arabic-pager/preview/
+__pycache__/
+
+# Editors and OS
+.DS_Store
+.vscode/
+.idea/

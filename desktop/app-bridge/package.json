@@ -1,0 +1,11 @@
+{
+  "name": "@quran-device/app-bridge",
+  "version": "0.1.0",
+  "description": "One-shot JSON bridge that lets the Tauri app drive the converter and device-client libraries",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

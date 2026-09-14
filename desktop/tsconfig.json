@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Type-only access to the sibling libraries' built declarations, so
+       src/bridge.ts describes what actually crosses the bridge instead of
+       carrying a second copy of those shapes that could drift. Erased at
+       compile time -- nothing from these packages is bundled. Requires
+       `npm run build` in desktop/converter and desktop/device-client, which
+       the app needs at runtime anyway. */
+    "baseUrl": ".",
+    "paths": {
+      "@quran-device/converter": ["./converter/dist/src/index.d.ts"],
+      "@quran-device/device-client": ["./device-client/dist/src/index.d.ts"],
+      "@quran-device/protocol": ["../packages/protocol/dist/src/index.d.ts"]
+    },
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

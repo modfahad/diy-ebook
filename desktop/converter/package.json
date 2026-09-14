@@ -1,0 +1,29 @@
+{
+  "name": "@quran-device/converter",
+  "version": "0.1.0",
+  "description": "Document conversion pipeline: PDF/EPUB/TXT and structured Quran sources into QPK1 packages",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": "./dist/src/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test dist/test/",
+    "regen-for-bushra": "npm run build && node scripts/regen-for-bushra.mjs"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.4.0",
+    "@quran-device/qpk-format": "file:../../packages/qpk-format",
+    "fast-xml-parser": "^5.11.1",
+    "fflate": "^0.8.3",
+    "pdfjs-dist": "^4.10.38"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "typescript": "^5.4.5"
+  }
+}

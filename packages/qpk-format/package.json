@@ -1,0 +1,22 @@
+{
+  "name": "@quran-device/qpk-format",
+  "version": "0.1.0",
+  "description": "Reader and writer for the QPK1 device content package format",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": "./dist/src/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test dist/test/",
+    "fixture": "npm run build && node dist/scripts/build-fixture.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "typescript": "^5.4.5"
+  }
+}

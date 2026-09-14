@@ -1,0 +1,73 @@
+# Builds the desktop app for macOS and Windows on every push to main (and on
+# demand), with Node and the bridge bundled in, so the installers run on a
+# computer without this checkout. The installers are attached to the run as
+# artifacts: open the run on GitHub, then "Artifacts".
+
+name: desktop
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install the libraries and the app
+        shell: bash
+        run: |
+          for dir in packages/qpk-format packages/protocol desktop/converter desktop/device-client desktop/app-bridge desktop; do
+            npm ci --prefix "$dir"
+          done
+
+      - name: Build the libraries
+        shell: bash
+        run: |
+          npm run build --prefix packages/qpk-format
+          npm run build --prefix packages/protocol
+          npm run build --prefix desktop/converter
+          npm run build --prefix desktop/device-client
+
+      - name: Test
+        shell: bash
+        run: |
+          npm test --prefix packages/qpk-format
+          npm test --prefix packages/protocol
+          npm test --prefix desktop/converter
+          npm test --prefix desktop/device-client
+          npm test --prefix desktop/app-bridge
+
+      - name: Bundle the bridge and this platform's Node
+        run: node desktop/scripts/prepare-standalone.mjs
+
+      - name: Build the installers
+        working-directory: desktop
+        run: npm run tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quran-device-${{ runner.os }}
+          if-no-files-found: error
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/release/bundle/msi/*.msi
+            desktop/src-tauri/target/release/bundle/nsis/*.exe

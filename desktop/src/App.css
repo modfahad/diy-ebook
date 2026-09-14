@@ -1,0 +1,567 @@
+/* The desktop manager's whole stylesheet.
+ *
+ * Plain CSS, no framework: the app is four tabs of forms and tables, and a
+ * dependency that has to be kept current for that is a poor trade in a project
+ * whose other halves are C++ and Rust.
+ *
+ * Light and dark both come from the OS. There is no in-app theme switch --
+ * the device itself is a fixed monochrome panel, and a second theme control
+ * here would be one more thing to keep working for no one's benefit.
+ */
+
+:root {
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --surface-sunken: #f0efec;
+  --ink: #1b1a17;
+  --ink-muted: #6b6862;
+  --line: #ddd9d1;
+  --accent: #2f6f4f;
+  --accent-ink: #ffffff;
+  --good: #2f6f4f;
+  --warn: #8a6100;
+  --bad: #a4302a;
+  --good-bg: #e8f2ec;
+  --warn-bg: #fbf3e0;
+  --bad-bg: #fbeceb;
+  --info-bg: #eef1f5;
+  --radius: 8px;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181a;
+    --surface: #202225;
+    --surface-sunken: #191b1d;
+    --ink: #e7e5e0;
+    --ink-muted: #9b978f;
+    --line: #33363a;
+    --accent: #5aa47c;
+    --accent-ink: #10221a;
+    --good: #78c39b;
+    --warn: #d6a94a;
+    --bad: #e0796f;
+    --good-bg: #1c2a23;
+    --warn-bg: #2c2618;
+    --bad-bg: #2e1e1d;
+    --info-bg: #1e2226;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.5rem 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.app-head h1 {
+  margin: 0;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+}
+
+.app-head p {
+  margin: 0.1rem 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.app-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+/* --- tabs ---------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--ink-muted);
+  padding: 0.5rem 0.9rem;
+  font-size: 0.92rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--ink);
+  background: var(--surface-sunken);
+}
+
+.tab-active,
+.tab-active:hover {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+  background: none;
+}
+
+/* --- layout -------------------------------------------------------------- */
+
+/* Wide enough for the Library and device-listing tables, which are the
+ * widest things here. Prose is capped separately (.card-head p, .kv) so
+ * nothing else stretches to match. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 84rem;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1.25rem;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.card-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.card-head p {
+  margin: 0.2rem 0 0;
+  font-size: 0.85rem;
+  max-width: 46rem;
+}
+
+.card > *:last-child {
+  margin-bottom: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.row.wrap {
+  flex-wrap: wrap;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+/* --- form controls ------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.field-wide {
+  grid-column: 1 / -1;
+}
+
+.field-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.field-hint {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+  width: 100%;
+}
+
+input:focus,
+select:focus,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.checks {
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.check input {
+  width: auto;
+}
+
+button {
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+button.danger:hover:not(:disabled) {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+/* --- text ---------------------------------------------------------------- */
+
+.muted {
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+}
+
+.big {
+  font-size: 1.35rem;
+  margin: 0;
+}
+
+.bad {
+  color: var(--bad);
+}
+
+.empty {
+  color: var(--ink-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: var(--surface-sunken);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+}
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.7rem 0.85rem;
+  overflow-x: auto;
+  margin: 0.5rem 0 0;
+  white-space: pre-wrap;
+}
+
+.preview {
+  max-height: 26rem;
+  overflow-y: auto;
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+.preview-heading {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.steps li {
+  margin-bottom: 0.5rem;
+}
+
+.status-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.status-list li {
+  padding-left: 0;
+}
+
+/* --- notices ------------------------------------------------------------- */
+
+.notice {
+  border-radius: 6px;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.88rem;
+  border: 1px solid transparent;
+}
+
+.notice p {
+  margin: 0 0 0.4rem;
+}
+
+.notice p:last-child,
+.notice ul:last-child {
+  margin-bottom: 0;
+}
+
+.notice ul {
+  margin: 0.3rem 0;
+  padding-left: 1.2rem;
+}
+
+.notice-info {
+  background: var(--info-bg);
+  border-color: var(--line);
+}
+
+.notice-good {
+  background: var(--good-bg);
+  border-color: var(--good);
+  color: var(--ink);
+}
+
+.notice-warn {
+  background: var(--warn-bg);
+  border-color: var(--warn);
+}
+
+.notice-error {
+  background: var(--bad-bg);
+  border-color: var(--bad);
+}
+
+.notice-remedy {
+  color: var(--ink-muted);
+}
+
+details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+/* --- badges, meters, key/value ------------------------------------------- */
+
+.badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  border: 1px solid var(--line);
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.badge-good {
+  color: var(--good);
+  border-color: var(--good);
+  background: var(--good-bg);
+}
+
+.badge-warn {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.badge-bad {
+  color: var(--bad);
+  border-color: var(--bad);
+  background: var(--bad-bg);
+}
+
+.meter-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.meter {
+  height: 0.55rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+
+.meter-label {
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+}
+
+/* Two columns at most: a label and its value have to stay visually paired,
+ * and four pairs across one wide row read as one run-on line. */
+.kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  gap: 0.5rem 2rem;
+  margin: 0;
+  max-width: 56rem;
+}
+
+.kv > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px dotted var(--line);
+  padding-bottom: 0.3rem;
+}
+
+.kv dt {
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+}
+
+.kv dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* --- tables -------------------------------------------------------------- */
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.87rem;
+}
+
+th {
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+  padding: 0.35rem 0.6rem 0.35rem 0;
+  white-space: nowrap;
+}
+
+td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.4rem 0.6rem 0.4rem 0;
+  vertical-align: top;
+}
+
+tbody tr:hover {
+  background: var(--surface-sunken);
+}
+
+.row-bad td {
+  color: var(--bad);
+}
+
+/* A size or a count must never wrap mid-value ("6.1 / KB"). */
+td.nowrap {
+  white-space: nowrap;
+}
+
+.row-actions {
+  display: flex;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.row-actions button {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+}

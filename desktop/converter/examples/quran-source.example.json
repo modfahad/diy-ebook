@@ -1,0 +1,294 @@
+{
+  "schemaVersion": 1,
+  "metadata": {
+    "title": "Synthetic Test Mushaf",
+    "script": "placeholder",
+    "language": "ar",
+    "source": "synthetic fixture, not real text"
+  },
+  "surahs": [
+    {
+      "id": 1,
+      "name": "PLACEHOLDER-SURAH-ONE",
+      "revelationPlace": "meccan",
+      "hasBismillah": true
+    },
+    {
+      "id": 2,
+      "name": "PLACEHOLDER-SURAH-TWO",
+      "revelationPlace": "medinan",
+      "hasBismillah": true
+    }
+  ],
+  "ayahs": [
+    {
+      "surah": 1,
+      "ayah": 1,
+      "page": 1,
+      "line": 1,
+      "words": [
+        "W1-1-0",
+        "W1-1-1",
+        "W1-1-2"
+      ],
+      "text": "W1-1-0 W1-1-1 W1-1-2"
+    },
+    {
+      "surah": 1,
+      "ayah": 2,
+      "page": 1,
+      "line": 2,
+      "words": [
+        "W1-2-0",
+        "W1-2-1"
+      ],
+      "text": "W1-2-0 W1-2-1"
+    },
+    {
+      "surah": 1,
+      "ayah": 3,
+      "page": 2,
+      "line": 1,
+      "words": [
+        "W1-3-0",
+        "W1-3-1",
+        "W1-3-2",
+        "W1-3-3"
+      ],
+      "text": "W1-3-0 W1-3-1 W1-3-2 W1-3-3"
+    },
+    {
+      "surah": 2,
+      "ayah": 1,
+      "page": 2,
+      "line": 3,
+      "words": [
+        "W2-1-0",
+        "W2-1-1"
+      ],
+      "text": "W2-1-0 W2-1-1"
+    },
+    {
+      "surah": 2,
+      "ayah": 2,
+      "page": 3,
+      "line": 1,
+      "words": [
+        "W2-2-0",
+        "W2-2-1",
+        "W2-2-2"
+      ],
+      "text": "W2-2-0 W2-2-1 W2-2-2"
+    },
+    {
+      "surah": 2,
+      "ayah": 3,
+      "page": 3,
+      "line": 2,
+      "words": [
+        "W2-3-0",
+        "W2-3-1"
+      ],
+      "text": "W2-3-0 W2-3-1"
+    }
+  ],
+  "pages": [
+    {
+      "page": 1,
+      "lineCount": 15
+    },
+    {
+      "page": 2,
+      "lineCount": 15
+    },
+    {
+      "page": 3,
+      "lineCount": 15
+    }
+  ],
+  "juz": [
+    {
+      "id": 1,
+      "surah": 1,
+      "ayah": 1
+    },
+    {
+      "id": 2,
+      "surah": 2,
+      "ayah": 2
+    }
+  ],
+  "sajdah": [
+    {
+      "surah": 2,
+      "ayah": 3,
+      "kind": "recommended"
+    }
+  ],
+  "layout": {
+    "pageWidth": 1000,
+    "pageHeight": 1400,
+    "words": [
+      {
+        "surah": 1,
+        "ayah": 1,
+        "word": 0,
+        "x": 100,
+        "y": 260,
+        "width": 110,
+        "height": 50,
+        "line": 1
+      },
+      {
+        "surah": 1,
+        "ayah": 1,
+        "word": 1,
+        "x": 220,
+        "y": 260,
+        "width": 110,
+        "height": 50,
+        "line": 1
+      },
+      {
+        "surah": 1,
+        "ayah": 1,
+        "word": 2,
+        "x": 340,
+        "y": 260,
+        "width": 110,
+        "height": 50,
+        "line": 1
+      },
+      {
+        "surah": 1,
+        "ayah": 2,
+        "word": 0,
+        "x": 100,
+        "y": 320,
+        "width": 110,
+        "height": 50,
+        "line": 2
+      },
+      {
+        "surah": 1,
+        "ayah": 2,
+        "word": 1,
+        "x": 220,
+        "y": 320,
+        "width": 110,
+        "height": 50,
+        "line": 2
+      },
+      {
+        "surah": 1,
+        "ayah": 3,
+        "word": 0,
+        "x": 100,
+        "y": 260,
+        "width": 110,
+        "height": 50,
+        "line": 1
+      },
+      {
+        "surah": 1,
+        "ayah": 3,
+        "word": 1,
+        "x": 220,
+        "y": 260,
+        "width": 110,
+        "height": 50,
+        "line": 1
+      },
+      {
+        "surah": 1,
+        "ayah": 3,
+        "word": 2,
+        "x": 340,
+        "y": 260,
+        "width": 110,
+        "height": 50,
+        "line": 1
+      },
+      {
+        "surah": 1,
+        "ayah": 3,
+        "word": 3,
+        "x": 460,
+        "y": 260,
+        "width": 110,
+        "height": 50,
+        "line": 1
+      },
+      {
+        "surah": 2,
+        "ayah": 1,
+        "word": 0,
+        "x": 100,
+        "y": 380,
+        "width": 110,
+        "height": 50,
+        "line": 3
+      },
+      {
+        "surah": 2,
+        "ayah": 1,
+        "word": 1,
+        "x": 220,
+        "y": 380,
+        "width": 110,
+        "height": 50,
+        "line": 3
+      },
+      {
+        "surah": 2,
+        "ayah": 2,
+        "word": 0,
+        "x": 100,
+        "y": 260,
+        "width": 110,
+        "height": 50,
+        "line": 1
+      },
+      {
+        "surah": 2,
+        "ayah": 2,
+        "word": 1,
+        "x": 220,
+        "y": 260,
+        "width": 110,
+        "height": 50,
+        "line": 1
+      },
+      {
+        "surah": 2,
+        "ayah": 2,
+        "word": 2,
+        "x": 340,
+        "y": 260,
+        "width": 110,
+        "height": 50,
+        "line": 1
+      },
+      {
+        "surah": 2,
+        "ayah": 3,
+        "word": 0,
+        "x": 100,
+        "y": 320,
+        "width": 110,
+        "height": 50,
+        "line": 2
+      },
+      {
+        "surah": 2,
+        "ayah": 3,
+        "word": 1,
+        "x": 220,
+        "y": 320,
+        "width": 110,
+        "height": 50,
+        "line": 2
+      }
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+// input_manager.h -- hal::IInput for the CrowPanel front panel.
+//
+// Polling, not interrupts. At kInputPollIntervalMs the encoder is sampled far
+// faster than a human can turn it, and polling keeps the whole decode path in
+// pure, host-testable code (util/debouncer.h, util/rotary.h) instead of an
+// ISR. Phase 2 can move to PCNT/interrupts behind this same interface if a
+// fast spin ever proves to drop detents.
+
+#pragma once
+
+#include <stdint.h>
+
+#include "hal/input.h"
+#include "util/debouncer.h"
+#include "util/rotary.h"
+
+namespace drivers {
+
+class InputManager : public hal::IInput {
+ public:
+  bool begin() override;
+  void poll(uint32_t now_ms) override;
+  bool nextEvent(hal::InputEvent* out) override;
+  uint32_t lastActivityMs() const override { return last_activity_ms_; }
+  bool anyHeld() const override;
+  hal::InputDiagnostics diagnostics() const override { return diag_; }
+
+  // True while rotary steps are queued but not yet released to the UI.
+  bool rotaryPending() const { return coalescer_.pending(); }
+
+ private:
+  void push(hal::InputSource source, hal::InputAction action, int16_t delta,
+            uint32_t now_ms);
+  void pumpButton(util::Button& button, hal::InputSource source, bool raw,
+                  uint32_t now_ms, uint32_t* click_counter);
+
+  static constexpr uint8_t kQueueSize = 16;
+  hal::InputEvent queue_[kQueueSize];
+  uint8_t head_ = 0;
+  uint8_t count_ = 0;
+
+  util::Button menu_;
+  util::Button exit_;
+  util::Button switch_;
+  util::Debouncer encoder_a_;
+  util::Debouncer encoder_b_;
+  util::PulseDecoder pulse_;
+  util::RotaryCoalescer coalescer_;
+
+  hal::InputDiagnostics diag_;
+  uint32_t last_activity_ms_ = 0;
+  bool started_ = false;
+};
+
+}  // namespace drivers
