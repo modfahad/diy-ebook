@@ -30,6 +30,7 @@
 #include "net/reading_progress.h"
 #include "net/reset_log.h"
 #include "net/bookmarks.h"
+#include "net/verified_packages.h"
 #include "net/base64.h"
 #include "net/upload_manager.h"
 #include "qpk/memory_file.h"
@@ -442,6 +443,63 @@ void test_bookmarks_damaged_file_loads_as_empty() {
   storage.put("/USER/bookmarks.bin", bytes);
   net::Bookmarks loaded;
   loaded.add(PageMark(9, 9));
+  loaded.load(&storage);
+  TEST_ASSERT_EQUAL_UINT16(0, loaded.count());
+}
+
+net::PackageFingerprint Fingerprint(uint8_t id, uint32_t payload_crc) {
+  net::PackageFingerprint fingerprint;
+  fingerprint.content_id[0] = id;
+  fingerprint.header_crc32 = 0x1234u + id;
+  fingerprint.payload_crc32 = payload_crc;
+  fingerprint.package_size = 0x100000000ull + id;  // above 4 GB: both halves stored
+  return fingerprint;
+}
+
+void test_verified_packages_round_trip_and_match_the_whole_fingerprint() {
+  FakeStorage storage;
+  net::VerifiedPackages verified;
+  verified.add(Fingerprint(1, 0xAAAAu));
+  verified.add(Fingerprint(2, 0xBBBBu));
+  TEST_ASSERT_TRUE(verified.save(&storage));
+  TEST_ASSERT_FALSE(storage.hasFile("/DEVICE/verified.tmp"));
+
+  net::VerifiedPackages loaded;
+  loaded.load(&storage);
+  TEST_ASSERT_EQUAL_UINT16(2, loaded.count());
+  TEST_ASSERT_TRUE(loaded.contains(Fingerprint(1, 0xAAAAu)));
+  TEST_ASSERT_TRUE(loaded.contains(Fingerprint(2, 0xBBBBu)));
+  // Same content id, different bytes (a rebuilt package): not verified.
+  TEST_ASSERT_FALSE(loaded.contains(Fingerprint(1, 0xCCCCu)));
+  net::PackageFingerprint other_size = Fingerprint(1, 0xAAAAu);
+  other_size.package_size += 1;
+  TEST_ASSERT_FALSE(loaded.contains(other_size));
+}
+
+void test_verified_packages_repeat_moves_to_front_and_full_list_drops_the_oldest() {
+  net::VerifiedPackages verified;
+  verified.add(Fingerprint(1, 1));
+  verified.add(Fingerprint(2, 2));
+  verified.add(Fingerprint(1, 1));  // again: not duplicated
+  TEST_ASSERT_EQUAL_UINT16(2, verified.count());
+  for (uint32_t i = 0; i < net::kMaxVerifiedPackages - 1; ++i) {
+    verified.add(Fingerprint(static_cast<uint8_t>(10 + i), 3));
+  }
+  TEST_ASSERT_EQUAL_UINT16(net::kMaxVerifiedPackages, verified.count());
+  TEST_ASSERT_TRUE(verified.contains(Fingerprint(1, 1)));   // moved to the front earlier
+  TEST_ASSERT_FALSE(verified.contains(Fingerprint(2, 2)));  // the oldest went
+}
+
+void test_verified_packages_damaged_file_loads_as_empty() {
+  FakeStorage storage;
+  net::VerifiedPackages verified;
+  verified.add(Fingerprint(1, 1));
+  TEST_ASSERT_TRUE(verified.save(&storage));
+  std::vector<uint8_t> bytes = *storage.peek("/DEVICE/verified.bin");
+  bytes[bytes.size() - 1] ^= 0xFF;
+  storage.put("/DEVICE/verified.bin", bytes);
+  net::VerifiedPackages loaded;
+  loaded.add(Fingerprint(9, 9));
   loaded.load(&storage);
   TEST_ASSERT_EQUAL_UINT16(0, loaded.count());
 }
@@ -1595,6 +1653,9 @@ int main(int, char**) {
   RUN_TEST(test_bookmarks_round_trip_newest_first);
   RUN_TEST(test_bookmarks_same_place_moves_to_front_and_full_list_drops_the_oldest);
   RUN_TEST(test_bookmarks_damaged_file_loads_as_empty);
+  RUN_TEST(test_verified_packages_round_trip_and_match_the_whole_fingerprint);
+  RUN_TEST(test_verified_packages_repeat_moves_to_front_and_full_list_drops_the_oldest);
+  RUN_TEST(test_verified_packages_damaged_file_loads_as_empty);
   RUN_TEST(test_reset_log_appends_one_line_per_boot);
   RUN_TEST(test_reset_log_stays_bounded_and_keeps_the_newest_whole_lines);
   RUN_TEST(test_alive_time_round_trips_and_is_zero_when_absent_or_damaged);

@@ -51,6 +51,7 @@
 #include "qpk/glyph_blitter.h"
 #include "qpk/qpk_reader.h"
 #include "qpk/translation_text.h"
+#include "net/verified_packages.h"
 #include "ui/home_screen.h"
 #include "ui/library_screen.h"
 #include "ui/page_image_screen.h"
@@ -236,6 +237,29 @@ struct TransSurah {
   uint32_t first_ayah_index = 0;
 };
 TransSurah g_trans_surahs[114];
+
+// The surah list is shared with the Quran reader (ScreenMode::kSurahPicker);
+// this says it was opened from a translation, so OK, EXIT and MENU there act
+// on the translation instead of the Quran package.
+bool g_surah_picker_translation = false;
+uint16_t g_trans_ayah_counts[114];
+
+// Buttons in a translation (as asked on the board, 2026-09-14): OK = surah
+// list, hold OK = text size, MENU = bookmark. Text books keep OK = size and
+// hold OK = bookmark.
+constexpr const char* kTranslationHint = "OK=surah hold=size MENU=mark";
+// A one-off footer notice in the text reader ("Bookmarked ..."), cleared by
+// the next page turn or size change.
+char g_reader_notice[48] = "";
+
+// A surah's stretch of TRANSLATION_DATA, read in one go
+// (qpk::AppendTranslationVerses). Al-Baqarah's is about 75 KB; a longer
+// tafsir surah that does not fit falls back to a read per verse.
+constexpr uint32_t kTranslationScratchBytes = 192 * 1024;
+char* g_trans_scratch = nullptr;  // PSRAM, allocated on first use
+
+// Packages whose index checksums already passed (/DEVICE/verified.bin).
+net::VerifiedPackages g_verified;
 char g_trans_name[net::kTitleMaxBytes] = "";
 uint32_t g_book_text_length = 0;
 char g_book_title[net::kTitleMaxBytes] = "";
@@ -391,6 +415,104 @@ void RefreshLibraryState() {
   g_library_state.bookmark_count = g_bookmarks.count();
   for (const uint8_t*& cover : g_library_state.shelf_covers) cover = nullptr;
   if (ui::LibraryScreen::isShelf(g_library_state) && g_storage.mounted()) LoadShelfCovers();
+  g_library_state.grey_covers =
+      app::kShelfGreyCovers && ui::LibraryScreen::isShelf(g_library_state);
+}
+
+// --- Books shelf in greys (app::kShelfGreyCovers) ------------------------------
+//
+// A shelf page goes to the panel as one 4-grey refresh: the canvas in black
+// and white plus every cover as grey pixels. Moving the selection within that
+// page changes only the title strips (the selected title is drawn inverted),
+// so those alone are updated with flushWindow(), which leaves the covers' greys
+// on the glass. Anything else that changed -- a new page, a status line, the
+// glass showing some other frame -- gets a fresh grey refresh.
+
+void PersistFramebuffer();  // below, with the other flush helpers
+
+uint8_t* g_shelf_grey = nullptr;     // ui::kShelfGreyBytes, allocated on first use
+int32_t g_shelf_grey_page = -1;      // shelf page start last drawn in grey, -1 none
+uint16_t g_shelf_grey_selected = 0;  // the selection that frame showed
+
+// True if the new canvas differs from the glass only inside the title bands of
+// shelf rows `row_a` and `row_b`; `*changed` says whether it differs at all.
+bool OnlyShelfTitlesChanged(uint8_t row_a, uint8_t row_b, bool* changed) {
+  const uint8_t* now = g_display.framebuffer();
+  const uint8_t* was = g_display.pushedFrame();
+  *changed = false;
+  if (now == nullptr || was == nullptr) return false;
+  const uint32_t stride = g_display.width() / 8;
+  const uint32_t rows = g_display.framebufferBytes() / stride;
+  int ax = 0, ay = 0, aw = 0, ah = 0, bx = 0, by = 0, bw = 0, bh = 0;
+  ui::LibraryScreen::shelfTitleBand(row_a, &ax, &ay, &aw, &ah);
+  ui::LibraryScreen::shelfTitleBand(row_b, &bx, &by, &bw, &bh);
+  for (uint32_t y = 0; y < rows; ++y) {
+    const bool in_band = (static_cast<int>(y) >= ay && static_cast<int>(y) < ay + ah) ||
+                         (static_cast<int>(y) >= by && static_cast<int>(y) < by + bh);
+    for (uint32_t b = 0; b < stride; ++b) {
+      if (now[y * stride + b] == was[y * stride + b]) continue;
+      *changed = true;
+      // Both bands span the same columns (the whole shelf).
+      const bool in_columns =
+          static_cast<int>(b * 8) >= ax && static_cast<int>(b * 8) < ax + aw;
+      if (!in_band || !in_columns) return false;
+    }
+  }
+  return true;
+}
+
+void FlushShelfGrey() {
+  const uint16_t page = ui::LibraryScreen::shelfPageStart(g_library_state);
+  const uint16_t selected = g_library_state.selected;
+  const auto shelf_row = [](uint16_t row) {
+    return static_cast<uint8_t>((row % ui::kLibraryShelfPageTiles) / ui::kLibraryShelfColumns);
+  };
+  const uint8_t old_row = shelf_row(g_shelf_grey_selected);
+  const uint8_t new_row = shelf_row(selected);
+  const uint32_t start = millis();
+
+  bool changed = true;
+  bool ok = true;
+  if (!g_force_full_refresh && g_display.greyOnGlass() &&
+      g_shelf_grey_page == static_cast<int32_t>(page) &&
+      OnlyShelfTitlesChanged(old_row, new_row, &changed)) {
+    if (changed) {
+      int x = 0, y = 0, w = 0, h = 0;
+      ui::LibraryScreen::shelfTitleBand(old_row, &x, &y, &w, &h);
+      ok = g_display.flushWindow(x, y, w, h);
+      if (new_row != old_row) {
+        ui::LibraryScreen::shelfTitleBand(new_row, &x, &y, &w, &h);
+        ok = g_display.flushWindow(x, y, w, h) && ok;
+      }
+      drivers::Logf("[library] shelf selection %u -> %u: %u title strip(s) flush=%d in %lums",
+                    static_cast<unsigned>(g_shelf_grey_selected),
+                    static_cast<unsigned>(selected), new_row != old_row ? 2u : 1u, ok ? 1 : 0,
+                    static_cast<unsigned long>(millis() - start));
+    }
+  } else {
+    if (g_shelf_grey == nullptr) {
+      g_shelf_grey = static_cast<uint8_t*>(ps_malloc(ui::kShelfGreyBytes));
+    }
+    if (g_shelf_grey != nullptr) {
+      ui::LibraryScreen::composeShelfGrey(g_library_state, g_shelf_grey);
+    }
+    // Without the buffer the covers stay blank, but the shelf still works.
+    ok = g_display.flushGrey(g_shelf_grey, ui::kShelfGreyX, ui::kShelfGreyY,
+                             ui::kShelfGreyW, ui::kShelfGreyH);
+    g_shelf_grey_page = ok ? static_cast<int32_t>(page) : -1;
+    drivers::Logf("[library] shelf page %u in grey%s flush=%d in %lums",
+                  static_cast<unsigned>(page), g_shelf_grey ? "" : " (no buffer: blank covers)",
+                  ok ? 1 : 0, static_cast<unsigned long>(millis() - start));
+  }
+  g_shelf_grey_selected = selected;
+  if (changed) {
+    if (ok) {
+      ++g_refresh_count;
+      PersistFramebuffer();
+    } else {
+      drivers::LogLine("[epd] shelf flush failed (panel BUSY timeout?)");
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -823,6 +945,8 @@ void AddBookmarkHere() {
   drivers::Logf("[bookmarks] saved %s%s", place, saved ? "" : " (could not write the card)");
   if (g_screen_mode == ScreenMode::kQuran) {
     snprintf(g_quran_status, sizeof(g_quran_status), "Bookmarked %.32s", place);
+  } else if (g_screen_mode == ScreenMode::kReader) {
+    snprintf(g_reader_notice, sizeof(g_reader_notice), "Bookmarked %.32s", place);
   }
   g_dirty = true;
 }
@@ -867,6 +991,45 @@ void RenderBookmarks() {
 
 // --- Translation / Tafsir reader ---------------------------------------------------
 
+// Opens a package for reading. The index checksum sweep (seconds of card
+// reads for a big book) runs only the first time this exact package is
+// opened; after it passes, the package's fingerprint goes into
+// /DEVICE/verified.bin and later opens skip it. See net::VerifiedPackages.
+qpk::Error OpenPackage(qpk::Reader& reader, hal::IFile* file, const char* path) {
+  const uint32_t start = millis();
+  qpk::Error err = reader.open(file, /*verify_index_checksums=*/false);
+  if (err != qpk::Error::kOk) return err;
+  const uint32_t parsed_ms = millis() - start;
+
+  const qpk::Header& header = reader.header();
+  net::PackageFingerprint fingerprint;
+  memcpy(fingerprint.content_id, header.content_id, sizeof(fingerprint.content_id));
+  fingerprint.header_crc32 = header.header_crc32;
+  fingerprint.payload_crc32 = header.payload_crc32;
+  fingerprint.package_size = header.package_size;
+  if (g_verified.contains(fingerprint)) {
+    drivers::Logf("[qpk] %s opened in %lums (checksums passed on an earlier open)", path,
+                  static_cast<unsigned long>(parsed_ms));
+    return qpk::Error::kOk;
+  }
+
+  const uint32_t verify_start = millis();
+  err = reader.verifyIndexChecksums();
+  drivers::Logf("[qpk] %s opened in %lums, index checksums %s in %lums", path,
+                static_cast<unsigned long>(parsed_ms),
+                err == qpk::Error::kOk ? "passed" : "FAILED",
+                static_cast<unsigned long>(millis() - verify_start));
+  if (err != qpk::Error::kOk) {
+    reader.close();
+    return err;
+  }
+  g_verified.add(fingerprint);
+  if (g_storage.mounted() && !g_verified.save(&g_storage)) {
+    drivers::LogLine("[qpk] could not save /DEVICE/verified.bin");
+  }
+  return qpk::Error::kOk;
+}
+
 void CloseTranslation() {
   if (g_trans_reader.isOpen()) g_trans_reader.close();
   if (g_trans_file != nullptr) {
@@ -899,7 +1062,7 @@ bool LoadAlignedSurahs() {
   if (file == nullptr) return false;
 
   qpk::Reader reader;
-  if (reader.open(file) == qpk::Error::kOk) {
+  if (OpenPackage(reader, file, path) == qpk::Error::kOk) {
     const uint32_t count = reader.recordCount(qpk::SectionId::kSurahIndex);
     for (uint16_t surah_id = 1; surah_id <= count && surah_id <= 114; ++surah_id) {
       qpk::SurahRecord surah;
@@ -937,7 +1100,8 @@ void BuildTranslationText(uint16_t surah) {
   }
 
   length += qpk::AppendTranslationVerses(g_trans_reader, first, count, g_trans_text + length,
-                                         kTranslationTextBytes - 1 - length);
+                                         kTranslationTextBytes - 1 - length, g_trans_scratch,
+                                         g_trans_scratch != nullptr ? kTranslationScratchBytes : 0);
   g_trans_text[length] = 0;
   g_trans_length = length;
 }
@@ -974,6 +1138,10 @@ void OpenTranslation(const net::LibraryEntry& entry, uint16_t surah, uint16_t pa
   if (g_trans_text == nullptr) {
     g_trans_text = static_cast<char*>(ps_malloc(kTranslationTextBytes));
   }
+  if (g_trans_scratch == nullptr) {
+    // Optional: without it each verse is read on its own, just slower.
+    g_trans_scratch = static_cast<char*>(ps_malloc(kTranslationScratchBytes));
+  }
   char path[72];
   if (g_trans_text == nullptr || !net::BuildPackagePath(entry, path, sizeof(path)) ||
       (g_trans_file = g_storage.open(path)) == nullptr) {
@@ -981,7 +1149,7 @@ void OpenTranslation(const net::LibraryEntry& entry, uint16_t surah, uint16_t pa
     g_dirty = true;
     return;
   }
-  const qpk::Error err = g_trans_reader.open(g_trans_file);
+  const qpk::Error err = OpenPackage(g_trans_reader, g_trans_file, path);
   if (err != qpk::Error::kOk) {
     snprintf(g_library_status, sizeof(g_library_status), "%s", qpk::ErrorText(err));
     CloseTranslation();
@@ -1101,6 +1269,7 @@ void CycleBookTextSize() {
   const uint32_t old_page = g_book_page;
 
   g_book_scale = next;
+  g_reader_notice[0] = 0;
   g_book_pager.reset(g_reader_body, g_reader_body_length,
                      ui::ReaderCharsPerLine(g_display.canvas().width(), g_book_scale),
                      ui::ReaderLinesPerPage(g_book_scale));
@@ -1134,6 +1303,11 @@ void RenderBookReader() {
   state.line_count =
       g_book_pager.linesForPage(g_book_page, g_book_lines, ui::kReaderMaxLines);
   state.lines = g_book_lines;
+  if (g_reader_notice[0] != 0) {
+    state.hint = g_reader_notice;
+  } else if (g_reader_is_translation) {
+    state.hint = kTranslationHint;
+  }
   ui::ReaderScreen::render(g_display.canvas(), state);
 }
 
@@ -1155,6 +1329,14 @@ void Repaint() {
   if (g_screen_mode == ScreenMode::kLibrary) {
     RefreshLibraryState();
     ui::LibraryScreen::render(g_display.canvas(), g_library_state);
+    if (g_library_state.grey_covers) {
+      FlushShelfGrey();
+      g_force_full_refresh = false;
+      g_dirty = false;
+      g_idle.setBusy(was_busy);
+      g_idle.noteActivity(millis());
+      return;
+    }
   } else if (g_screen_mode == ScreenMode::kReader) {
     RenderBookReader();
   } else if (g_screen_mode == ScreenMode::kPages) {
@@ -1162,7 +1344,15 @@ void Repaint() {
   } else if (g_screen_mode == ScreenMode::kBookmarks) {
     RenderBookmarks();
   } else if (g_screen_mode == ScreenMode::kSurahPicker) {
-    g_surah_picker_state.reader = &g_quran_reader;
+    if (g_surah_picker_translation) {
+      g_surah_picker_state.reader = nullptr;
+      g_surah_picker_state.list_count = g_trans_surah_count;
+      g_surah_picker_state.list_ayah_counts = g_trans_ayah_counts;
+    } else {
+      g_surah_picker_state.reader = &g_quran_reader;
+      g_surah_picker_state.list_count = 0;
+      g_surah_picker_state.list_ayah_counts = nullptr;
+    }
     g_surah_picker_state.selected = g_surah_picker_selected;
     g_surah_picker_state.scroll_top = g_surah_picker_scroll_top;
     ui::SurahPickerScreen::render(g_display.canvas(), g_surah_picker_state);
@@ -1789,7 +1979,7 @@ void OpenBook(const net::LibraryEntry& entry) {
   ClosePageBook();
   const uint32_t open_start = millis();
   qpk::Reader& reader = g_page_reader;
-  const qpk::Error open_err = reader.open(file);
+  const qpk::Error open_err = OpenPackage(reader, file, path);
   drivers::Logf("[library] opened %s in %lums", path,
                 static_cast<unsigned long>(millis() - open_start));
   if (open_err != qpk::Error::kOk) {
@@ -1915,6 +2105,33 @@ void EnterSurahPicker(uint16_t selected) {
     g_surah_picker_scroll_top = static_cast<uint16_t>(
         g_surah_picker_selected - ui::kSurahPickerMaxVisibleRows + 1);
   }
+  g_surah_picker_translation = false;
+  g_screen_mode = ScreenMode::kSurahPicker;
+  g_force_full_refresh = true;
+  g_dirty = true;
+}
+
+// OK in a translation: the surah list, with the surah being read selected.
+// Needs the aligned Quran's surahs; without them the translation is one run
+// and there is nothing to pick.
+void EnterTranslationSurahPicker() {
+  if (g_trans_surah_count == 0) {
+    snprintf(g_reader_notice, sizeof(g_reader_notice), "No surah list: aligned Quran not on card");
+    g_dirty = true;
+    return;
+  }
+  for (uint16_t i = 0; i < g_trans_surah_count; ++i) {
+    g_trans_ayah_counts[i] = static_cast<uint16_t>(g_trans_surahs[i].ayah_count);
+  }
+  g_surah_picker_selected =
+      g_trans_surah >= 1 && g_trans_surah <= g_trans_surah_count ? g_trans_surah - 1 : 0;
+  g_surah_picker_scroll_top = 0;
+  if (g_surah_picker_selected >= ui::kSurahPickerMaxVisibleRows) {
+    g_surah_picker_scroll_top =
+        static_cast<uint16_t>(g_surah_picker_selected - ui::kSurahPickerMaxVisibleRows + 1);
+  }
+  g_surah_picker_translation = true;
+  g_reader_notice[0] = 0;
   g_screen_mode = ScreenMode::kSurahPicker;
   g_force_full_refresh = true;
   g_dirty = true;
@@ -1943,7 +2160,7 @@ void OpenQuran(const net::LibraryEntry& entry) {
     return;
   }
 
-  const qpk::Error open_err = g_quran_reader.open(g_quran_file);
+  const qpk::Error open_err = OpenPackage(g_quran_reader, g_quran_file, path);
   if (open_err != qpk::Error::kOk) {
     snprintf(g_library_status, sizeof(g_library_status), "%s",
              qpk::ErrorText(open_err));
@@ -2028,8 +2245,13 @@ void OpenQuran(const net::LibraryEntry& entry) {
 
 // Moves the surah picker's selection by `delta` rows, same clamp-and-scroll
 // shape as MoveLibrarySelection.
+uint32_t SurahPickerTotal() {
+  return g_surah_picker_translation ? g_trans_surah_count
+                                    : g_quran_reader.recordCount(qpk::SectionId::kSurahIndex);
+}
+
 void MoveSurahPickerSelection(int32_t delta) {
-  const uint32_t total = g_quran_reader.recordCount(qpk::SectionId::kSurahIndex);
+  const uint32_t total = SurahPickerTotal();
   if (total == 0) return;
   int32_t next = static_cast<int32_t>(g_surah_picker_selected) + delta;
   if (next < 0) next = 0;
@@ -2050,6 +2272,13 @@ void MoveSurahPickerSelection(int32_t delta) {
 // OK on the surah picker: load the selected surah and enter ui::QuranScreen.
 // Does nothing if the selection is stale (index changed under us).
 void OpenSelectedSurah() {
+  if (g_surah_picker_translation) {
+    if (g_surah_picker_selected >= g_trans_surah_count) return;
+    ShowTranslationSurah(static_cast<uint16_t>(g_surah_picker_selected + 1), false);
+    g_screen_mode = ScreenMode::kReader;
+    drivers::Logf("[translation] picked surah=%u", static_cast<unsigned>(g_trans_surah));
+    return;
+  }
   const uint32_t total = g_quran_reader.recordCount(qpk::SectionId::kSurahIndex);
   if (g_surah_picker_selected >= total) return;
   const uint16_t surah_id = static_cast<uint16_t>(g_surah_picker_selected + 1);
@@ -2395,6 +2624,10 @@ void HandleEvent(const hal::InputEvent& ev) {
           JumpTargetToNextChapter();
           break;
         }
+        if (g_screen_mode == ScreenMode::kReader && g_reader_is_translation) {
+          AddBookmarkHere();  // MENU = bookmark in a translation (see kTranslationHint)
+          break;
+        }
         // MENU switches between the library browser and the hardware
         // self-test screen -- see ScreenMode. From the reader it always
         // goes back to the library instead ("MENU opens the menu"), not toggling to the
@@ -2409,6 +2642,9 @@ void HandleEvent(const hal::InputEvent& ev) {
           g_screen_mode = ScreenMode::kLibrary;
         } else if (g_screen_mode == ScreenMode::kPages) {
           ClosePageBook();
+          g_screen_mode = ScreenMode::kLibrary;
+        } else if (g_screen_mode == ScreenMode::kSurahPicker && g_surah_picker_translation) {
+          CloseTranslation();
           g_screen_mode = ScreenMode::kLibrary;
         } else if (g_screen_mode == ScreenMode::kQuran ||
                    g_screen_mode == ScreenMode::kSurahPicker) {
@@ -2487,6 +2723,14 @@ void HandleEvent(const hal::InputEvent& ev) {
           Repaint();
           break;
         }
+        if (g_screen_mode == ScreenMode::kSurahPicker && g_surah_picker_translation) {
+          // Back to the translation, on the page it was showing.
+          g_screen_mode = ScreenMode::kReader;
+          g_force_full_refresh = true;
+          g_dirty = true;
+          Repaint();
+          break;
+        }
         if (g_screen_mode == ScreenMode::kSurahPicker) {
           // One level further: leaving the picker releases the package, the
           // real resource that stays open the whole time either screen is up.
@@ -2543,7 +2787,11 @@ void HandleEvent(const hal::InputEvent& ev) {
         } else if (g_screen_mode == ScreenMode::kBookmarks) {
           OpenSelectedBookmark();
         } else if (g_screen_mode == ScreenMode::kReader) {
-          CycleBookTextSize();
+          if (g_reader_is_translation) {
+            EnterTranslationSurahPicker();
+          } else {
+            CycleBookTextSize();
+          }
         } else if (g_screen_mode == ScreenMode::kPages) {
           if (!g_page_jump_mode) {
             g_page_jump_mode = true;
@@ -2573,7 +2821,11 @@ void HandleEvent(const hal::InputEvent& ev) {
         // the selected one. Anywhere else it still toggles transfer mode.
         if (g_screen_mode == ScreenMode::kPages || g_screen_mode == ScreenMode::kReader ||
             g_screen_mode == ScreenMode::kQuran) {
-          AddBookmarkHere();
+          if (g_screen_mode == ScreenMode::kReader && g_reader_is_translation) {
+            CycleBookTextSize();  // hold OK = text size in a translation
+          } else {
+            AddBookmarkHere();
+          }
         } else if (g_screen_mode == ScreenMode::kBookmarks) {
           DeleteSelectedBookmark();
         } else {
@@ -2623,6 +2875,7 @@ void HandleEvent(const hal::InputEvent& ev) {
             g_dirty = true;
           }
         } else if (g_screen_mode == ScreenMode::kReader && g_reader_is_translation) {
+          g_reader_notice[0] = 0;
           // Past the last page of a surah into the next one, and back.
           const int32_t last = static_cast<int32_t>(g_book_pager.pageCount());
           int32_t next = static_cast<int32_t>(g_book_page) + ev.delta;
@@ -2639,6 +2892,7 @@ void HandleEvent(const hal::InputEvent& ev) {
             }
           }
         } else if (g_screen_mode == ScreenMode::kReader) {
+          g_reader_notice[0] = 0;
           const int32_t last = static_cast<int32_t>(g_book_pager.pageCount());
           int32_t next = static_cast<int32_t>(g_book_page) + ev.delta;
           if (next < 1) next = 1;
@@ -2816,6 +3070,7 @@ void setup() {
     const uint32_t last_alive = net::LoadAliveTime(&g_storage);
     net::AppendResetRecord(&g_storage, g_power.wakeInfo().boot_count, reset_reason, last_alive);
     g_bookmarks.load(&g_storage);
+    g_verified.load(&g_storage);
     drivers::Logf("[boot] reset=%s last_alive=%lu (history in /DEVICE/resets.log)", reset_reason,
                   static_cast<unsigned long>(last_alive));
     BringUpNetState();

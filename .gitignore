@@ -19,6 +19,9 @@ desktop/src-tauri/bridge/
 mobile/android/
 mobile/ios/
 mobile/.expo/
+# Built by `npm run worker` in mobile/ (scripts/build-render-worker.mjs)
+mobile/src/render/workerHtml.generated.ts
+mobile/render-worker/*.generated.html
 
 # Fetched Quran text and translations: not redistributed from this repository
 # (docs/quran-content.md); fetch them with tools/arabic-pager.

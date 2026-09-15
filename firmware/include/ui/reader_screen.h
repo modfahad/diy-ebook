@@ -40,6 +40,11 @@ struct ReaderState {
   uint8_t lines_per_page = 0;
   /** Set when there is no card and the text is built into the firmware. */
   bool from_flash = false;
+  /**
+   * The footer's button hint (or a one-off notice such as "Bookmarked ..."),
+   * replacing "turn=page  OK=size  EXIT=back"; nullptr keeps that default.
+   */
+  const char* hint = nullptr;
 };
 
 /** Body area the pager should be sized against, in pixels. */

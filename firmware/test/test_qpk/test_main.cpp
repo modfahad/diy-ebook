@@ -250,6 +250,97 @@ void test_translation_verses_are_numbered_folded_and_bounded() {
   TEST_ASSERT_EQUAL_UINT32(0u, qpk::AppendTranslationVerses(reader, 5, 2, out, sizeof(out)));
 }
 
+// A translation of `verses` ayahs whose texts are "Verse <n>." end to end.
+Bytes BuildNumberedTranslation(uint32_t verses) {
+  Bytes data;
+  Bytes index;
+  for (uint32_t i = 0; i < verses; ++i) {
+    const std::string text = "Verse " + std::to_string(i + 1) + ".";
+    PushLe(&index, static_cast<uint32_t>(data.size()), 4);
+    PushLe(&index, static_cast<uint32_t>(text.size()), 4);
+    data.insert(data.end(), text.begin(), text.end());
+  }
+  qpktest::PackageBuilder builder;
+  builder.setType(qpk::PackageType::kTranslation);
+  builder.addMetadata(qpk::MetadataKey::kTitle, "Numbered");
+  builder.addSection(qpk::SectionId::kTranslationIndex, index, verses);
+  builder.addSection(qpk::SectionId::kTranslationData, data, 0);
+  return builder.build();
+}
+
+void test_translation_verses_read_in_one_go_match_the_verse_by_verse_text() {
+  const Bytes file = BuildNumberedTranslation(700);  // more than one 512-record batch
+  qpk::MemoryFile memory;
+  qpk::Reader reader;
+  TEST_ASSERT_EQUAL_INT(kErr(qpk::Error::kOk), kErr(OpenBytes(file, &reader, &memory)));
+
+  static char slow[16384];
+  static char fast[16384];
+  static char scratch[16384];
+  const uint32_t slow_n = qpk::AppendTranslationVerses(reader, 3, 690, slow, sizeof(slow));
+  const uint32_t fast_n =
+      qpk::AppendTranslationVerses(reader, 3, 690, fast, sizeof(fast), scratch, sizeof(scratch));
+  TEST_ASSERT_TRUE(slow_n > 0);
+  TEST_ASSERT_EQUAL_UINT32(slow_n, fast_n);
+  TEST_ASSERT_EQUAL_MEMORY(slow, fast, slow_n);
+  TEST_ASSERT_EQUAL_STRING("1. Verse 4.\n\n2. Verse 5.", std::string(fast, 24).c_str());
+
+  // A scratch too small for the span: the verse-by-verse path, same text.
+  char tiny_scratch[8];
+  const uint32_t fallback_n = qpk::AppendTranslationVerses(reader, 3, 690, fast, sizeof(fast),
+                                                           tiny_scratch, sizeof(tiny_scratch));
+  TEST_ASSERT_EQUAL_UINT32(slow_n, fallback_n);
+  TEST_ASSERT_EQUAL_MEMORY(slow, fast, slow_n);
+
+  // Past the end of the index: only what exists.
+  const uint32_t tail_n =
+      qpk::AppendTranslationVerses(reader, 698, 10, fast, sizeof(fast), scratch, sizeof(scratch));
+  TEST_ASSERT_EQUAL_STRING("1. Verse 699.\n\n2. Verse 700.\n\n", std::string(fast, tail_n).c_str());
+}
+
+void test_read_record_range_stops_at_the_section_end_and_the_buffer() {
+  const Bytes file = BuildNumberedTranslation(10);
+  qpk::MemoryFile memory;
+  qpk::Reader reader;
+  TEST_ASSERT_EQUAL_INT(kErr(qpk::Error::kOk), kErr(OpenBytes(file, &reader, &memory)));
+
+  uint8_t records[64];
+  TEST_ASSERT_EQUAL_UINT32(4u, reader.readRecordRange(qpk::SectionId::kTranslationIndex, 0, 4,
+                                                      records, sizeof(records)));
+  qpk::TranslationRecord second;
+  TEST_ASSERT_EQUAL_INT(kErr(qpk::Error::kOk), kErr(reader.getTranslation(1, &second)));
+  TEST_ASSERT_EQUAL_MEMORY(records + 8, file.data() + reader.section(qpk::SectionId::kTranslationIndex)->offset + 8, 8);
+  TEST_ASSERT_EQUAL_UINT32(3u, reader.readRecordRange(qpk::SectionId::kTranslationIndex, 7, 9,
+                                                      records, sizeof(records)));
+  TEST_ASSERT_EQUAL_UINT32(2u, reader.readRecordRange(qpk::SectionId::kTranslationIndex, 0, 9,
+                                                      records, 20));  // 20 bytes: two records
+  TEST_ASSERT_EQUAL_UINT32(0u, reader.readRecordRange(qpk::SectionId::kTranslationIndex, 10, 1,
+                                                      records, sizeof(records)));
+  TEST_ASSERT_EQUAL_UINT32(0u, reader.readRecordRange(qpk::SectionId::kSurahIndex, 0, 1,
+                                                      records, sizeof(records)));
+}
+
+void test_open_can_leave_the_index_checksums_to_the_caller() {
+  Bytes file = BuildNumberedTranslation(10);
+  uint64_t index_offset = 0;
+  {
+    qpk::MemoryFile memory;
+    qpk::Reader reader;
+    TEST_ASSERT_EQUAL_INT(kErr(qpk::Error::kOk), kErr(OpenBytes(file, &reader, &memory)));
+    index_offset = reader.section(qpk::SectionId::kTranslationIndex)->offset;
+  }
+  file[static_cast<size_t>(index_offset) + 4] ^= 0x01;  // one index byte, still in bounds
+
+  qpk::MemoryFile memory;
+  memory.reset(file.data(), file.size());
+  qpk::Reader reader;
+  TEST_ASSERT_EQUAL_INT(kErr(qpk::Error::kSectionChecksum), kErr(reader.open(&memory)));
+  TEST_ASSERT_EQUAL_INT(kErr(qpk::Error::kOk), kErr(reader.open(&memory, false)));
+  TEST_ASSERT_EQUAL_INT(kErr(qpk::Error::kSectionChecksum), kErr(reader.verifyIndexChecksums()));
+  reader.close();
+  TEST_ASSERT_EQUAL_INT(kErr(qpk::Error::kNotOpen), kErr(reader.verifyIndexChecksums()));
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -1447,6 +1538,9 @@ int main(int, char**) {
   RUN_TEST(test_read_cover_from_file_matches_reader_read_cover);
   RUN_TEST(test_read_cover_from_file_reports_missing_and_malformed_covers);
   RUN_TEST(test_translation_verses_are_numbered_folded_and_bounded);
+  RUN_TEST(test_translation_verses_read_in_one_go_match_the_verse_by_verse_text);
+  RUN_TEST(test_read_record_range_stops_at_the_section_end_and_the_buffer);
+  RUN_TEST(test_open_can_leave_the_index_checksums_to_the_caller);
 
   return UNITY_END();
 }

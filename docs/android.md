@@ -62,10 +62,32 @@ To check on the first run: Hermes provides `TextEncoder`/`TextDecoder`
 (the converter needs the decoder), and a picked `content://` file reads
 through `expo-file-system`'s `File.arrayBuffer()`.
 5. **Photos tab** -- pick pictures, 4-grey preview via the render worker,
-   upload, time zone.
-6. **Library tab** -- open packages, validate, covers.
+   upload, time zone. *(done, type-checked and bundled; not yet run)*
+6. **Library tab** -- open packages, validate, covers. *(done, type-checked
+   and bundled; not yet run)* Packages live in the app's documents folder
+   (`library/`): added from the file picker or saved by the Converter; each
+   can be validated, sent to the device, shared, or deleted.
 7. **Converter tab** -- TXT and EPUB first (pure JS), then PDF through the
-   render worker (text and page pictures), covers.
+   render worker (text and page pictures), covers. *(done, type-checked and
+   bundled; not yet run)* In the end all three formats go through the render
+   worker, not just PDF: it runs the converter exactly as the desktop bridge
+   does, which avoids depending on Hermes for `TextDecoder` and keeps pdf.js
+   out of the app bundle.
+
+### The render worker
+
+`render-worker/worker.ts`, bundled by `npm run worker`
+(`scripts/build-render-worker.mjs`, esbuild) into one HTML page,
+`src/render/workerHtml.generated.ts` (1.8 MB, not committed). The app mounts
+it once in a hidden `react-native-webview` (`src/render/RenderWorker.tsx`)
+and calls it with `worker.call(command, args, { bytes, onProgress })`.
+Commands: `photoRgba` (decode + 400x480 crop), `coverFromPicture`,
+`epubCover`, `convert` (with PDF page pictures when `keepLayout`), `preview`,
+`validate`. Bytes travel as base64 in 512 KB pieces both ways; the last
+converted package stays in the page so preview page turns do not resend it.
+pdf.js's worker runs on the page's own thread, as in the desktop's standalone
+bridge. The app itself dithers photos (`convertPhoto`) and draws every preview
+as a PNG it encodes (`src/png.ts`), since React Native has no canvas.
 
 ## Building and running (once the SDK is installed)
 

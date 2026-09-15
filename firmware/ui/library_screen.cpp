@@ -1,6 +1,7 @@
 #include "ui/library_screen.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "app/app_config.h"
 #include "app/library_icons.h"
@@ -309,6 +310,9 @@ constexpr int kShelfTop = 84;
 constexpr int kShelfPitchY = 178;
 constexpr int kShelfCoverW = 108;  // qpk::kCoverWidth
 constexpr int kShelfCoverH = 144;  // qpk::kCoverHeight
+// The selected title's white-on-black box in grey mode: from 4 px above the
+// title's top to 4 px below its 14 px glyphs.
+constexpr int kShelfTitleBoxH = 22;
 
 // A 4-grey cover on the black/white library screen: black and white as they
 // are, the two greys as 3-in-4 and 1-in-4 ink in a 2x2 pattern, so selection
@@ -337,18 +341,27 @@ void DrawShelf(gfx::Canvas& canvas, const LibraryState& state) {
     const int tile_x = x - (kShelfPitchX - kShelfCoverW) / 2;
     const int title_y = y + kShelfCoverH + 9;
 
+    // Grey mode marks the selection on its title (white on black), a strip
+    // flushWindow() can update without touching a cover's grey pixels.
+    const bool title_inverted = state.grey_covers && row == state.selected;
+    const gfx::Color title_ink = title_inverted ? gfx::kWhite : gfx::kBlack;
+    if (title_inverted) {
+      canvas.fillRect(tile_x + 6, title_y - 4, kShelfPitchX - 12, kShelfTitleBoxH, gfx::kBlack);
+    }
+
     uint16_t ordinal = 0;
     const LibraryRow kind = LibraryScreen::rowKind(state, row, &ordinal);
     if (kind == LibraryRow::kBack) {
       canvas.drawRect(x, y, kShelfCoverW, kShelfCoverH, gfx::kBlack);
       CenterTextIn(canvas, x, kShelfCoverW, y + 54, "<", 5, gfx::kBlack);
-      CenterTextIn(canvas, tile_x, kShelfPitchX, title_y, "Back", kBodyScale, gfx::kBlack);
+      CenterTextIn(canvas, tile_x, kShelfPitchX, title_y, "Back", kBodyScale, title_ink);
     } else if (kind == LibraryRow::kItem) {
       const net::LibraryEntry* entry =
           LibraryScreen::entryOfType(state, state.category, ordinal);
       if (entry == nullptr) continue;  // index changed under us
       if (state.shelf_covers[slot] != nullptr) {
-        DrawCoverBW(canvas, x, y, state.shelf_covers[slot]);
+        // In grey mode the inside stays white: composeShelfGrey() supplies it.
+        if (!state.grey_covers) DrawCoverBW(canvas, x, y, state.shelf_covers[slot]);
         canvas.drawRect(x, y, kShelfCoverW, kShelfCoverH, gfx::kBlack);
       } else {
         // No cover in the package: a plain one with the book icon, the same
@@ -361,10 +374,10 @@ void DrawShelf(gfx::Canvas& canvas, const LibraryState& state) {
       char title[net::kTitleMaxBytes];
       // 24 px narrower than the tile, so neighbouring titles never touch.
       TruncateTitle(entry->title, kShelfPitchX - 24, title, sizeof(title));
-      CenterTextIn(canvas, tile_x, kShelfPitchX, title_y, title, kBodyScale, gfx::kBlack);
+      CenterTextIn(canvas, tile_x, kShelfPitchX, title_y, title, kBodyScale, title_ink);
     }
 
-    if (row == state.selected) {
+    if (row == state.selected && !state.grey_covers) {
       for (int t = 0; t < 3; ++t) {
         canvas.drawRect(x - 4 - t, y - 4 - t, kShelfCoverW + 8 + 2 * t, kShelfCoverH + 8 + 2 * t,
                         gfx::kBlack);
@@ -387,6 +400,46 @@ uint16_t LibraryScreen::shelfPageStart(const LibraryState& state) {
 void LibraryScreen::shelfCoverRect(uint8_t slot, int* x, int* y) {
   *x = kShelfLeft + (slot % kLibraryShelfColumns) * kShelfPitchX + (kShelfPitchX - kShelfCoverW) / 2;
   *y = kShelfTop + (slot / kLibraryShelfColumns) * kShelfPitchY;
+}
+
+void LibraryScreen::shelfTitleBand(uint8_t shelf_row, int* x, int* y, int* w, int* h) {
+  // Covers end at +144 and the next row's start at +178 (kShelfPitchY); the
+  // title box spans +149..+171. Horizontally the whole shelf, byte-aligned.
+  *x = (kShelfLeft / 8) * 8;
+  *w = ((kShelfLeft + kLibraryShelfColumns * kShelfPitchX - *x + 7) / 8) * 8;
+  *y = kShelfTop + shelf_row * kShelfPitchY + kShelfCoverH + 2;
+  *h = kShelfPitchY - kShelfCoverH - 4;
+}
+
+void LibraryScreen::composeShelfGrey(const LibraryState& state, uint8_t* out) {
+  memset(out, 0xFF, kShelfGreyBytes);  // level 3, white
+  const int stride = kShelfGreyW / 4;
+  const uint16_t start = shelfPageStart(state);
+  const uint16_t total = rowCount(state);
+  for (uint8_t slot = 0; slot < kLibraryShelfPageTiles; ++slot) {
+    const uint16_t row = static_cast<uint16_t>(start + slot);
+    const uint8_t* cover = state.shelf_covers[slot];
+    if (row >= total || cover == nullptr ||
+        rowKind(state, row, nullptr) != LibraryRow::kItem) {
+      continue;
+    }
+    int x = 0;
+    int y = 0;
+    shelfCoverRect(slot, &x, &y);
+    const int ox = x - kShelfGreyX;
+    const int oy = y - kShelfGreyY;
+    const int cover_stride = kShelfCoverW / 4;
+    for (int r = 0; r < kShelfCoverH; ++r) {
+      const uint8_t* src = cover + r * cover_stride;
+      uint8_t* dst = out + (oy + r) * stride;
+      for (int c = 0; c < kShelfCoverW; ++c) {
+        const uint8_t level = (src[c >> 2] >> (6 - 2 * (c & 3))) & 3;
+        const int col = ox + c;
+        const int shift = 6 - 2 * (col & 3);
+        dst[col >> 2] = static_cast<uint8_t>((dst[col >> 2] & ~(3 << shift)) | (level << shift));
+      }
+    }
+  }
 }
 
 void LibraryScreen::render(gfx::Canvas& canvas, const LibraryState& state) {

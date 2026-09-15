@@ -170,7 +170,9 @@ const char* ErrorText(Error error) {
 
 // --- open / close -----------------------------------------------------------
 
-Error Reader::open(hal::IFile* file) {
+Error Reader::open(hal::IFile* file) { return open(file, true); }
+
+Error Reader::open(hal::IFile* file, bool verify_index_checksums) {
   close();
   if (file == nullptr || !file->valid()) return Error::kIoError;
   file_ = file;
@@ -181,11 +183,30 @@ Error Reader::open(hal::IFile* file) {
   if (error == Error::kOk) error = requireSectionsForType();
   if (error == Error::kOk) error = requireFontSectionsIfShaped();
   if (error == Error::kOk) error = requireLayoutIfHasWordLayout();
-  if (error == Error::kOk) error = verifyFixedIndexChecksums();
+  if (error == Error::kOk && verify_index_checksums) error = verifyFixedIndexChecksums();
   if (error == Error::kOk) error = checkIndexConsistency();
 
   if (error != Error::kOk) close();
   return error;
+}
+
+Error Reader::verifyIndexChecksums() const {
+  if (file_ == nullptr) return Error::kNotOpen;
+  return verifyFixedIndexChecksums();
+}
+
+uint32_t Reader::readRecordRange(SectionId id, uint32_t first, uint32_t count, uint8_t* dst,
+                                 uint32_t capacity) const {
+  if (file_ == nullptr || dst == nullptr) return 0;
+  const SectionEntry* e = section(id);
+  if (e == nullptr || e->record_size == 0 || first >= e->count) return 0;
+  uint32_t n = count;
+  if (n > e->count - first) n = e->count - first;
+  if (n > capacity / e->record_size) n = capacity / e->record_size;
+  if (n == 0) return 0;
+  const uint64_t offset = e->offset + static_cast<uint64_t>(first) * e->record_size;
+  if (!file_->readExact(offset, dst, n * e->record_size)) return 0;
+  return n;
 }
 
 void Reader::close() {

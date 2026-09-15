@@ -104,7 +104,22 @@ struct LibraryState {
   // position on that page (0 = its first tile). Each is qpk::kCoverPixelBytes
   // of 2bpp pixels (docs/qpk-format.md 9c), or nullptr to draw a plain cover.
   const uint8_t* shelf_covers[kLibraryShelfPageTiles] = {};
+
+  // Covers go to the panel in greys (app::kShelfGreyCovers): the canvas
+  // leaves each cover's inside white for composeShelfGrey()'s pixels, and the
+  // selection is the book's title drawn white on black -- a strip under the
+  // covers that can be updated alone -- instead of a frame round the cover.
+  bool grey_covers = false;
 };
+
+// The shelf's grey layer: every cover on a page, as one 2bpp image (4 pixels
+// a byte, MSB first, 0 black .. 3 white) for Epd750Display::flushGrey(). The
+// width is a multiple of 4, as flushGrey requires.
+constexpr int kShelfGreyX = 20;
+constexpr int kShelfGreyY = 84;
+constexpr int kShelfGreyW = 760;
+constexpr int kShelfGreyH = 322;
+constexpr uint32_t kShelfGreyBytes = (kShelfGreyW / 4) * kShelfGreyH;
 
 class LibraryScreen {
  public:
@@ -132,6 +147,19 @@ class LibraryScreen {
 
   /** Top-left of the 108x144 cover for tile `slot` on a shelf page. */
   static void shelfCoverRect(uint8_t slot, int* x, int* y);
+
+  /**
+   * The strip holding the titles of shelf row `shelf_row` (0 or 1): below
+   * that row's covers, clear of every cover's pixels, and byte-aligned
+   * (x and w multiples of 8) for Epd750Display::flushWindow().
+   */
+  static void shelfTitleBand(uint8_t shelf_row, int* x, int* y, int* w, int* h);
+
+  /**
+   * Fills `out` (kShelfGreyBytes) with the covers of the shelf page being
+   * shown, at their places within the kShelfGrey* rectangle, white elsewhere.
+   */
+  static void composeShelfGrey(const LibraryState& state, uint8_t* out);
 
   /** The package type behind category `i` (0..kLibraryCategoryCount-1). */
   static uint16_t categoryType(uint8_t i);

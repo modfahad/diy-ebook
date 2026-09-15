@@ -93,7 +93,7 @@ void ReaderScreen::render(gfx::Canvas& canvas, const ReaderState& s) {
            static_cast<unsigned>(s.scale),
            static_cast<unsigned>(s.chars_per_line),
            static_cast<unsigned>(s.lines_per_page),
-           "turn=page  OK=size  EXIT=back");
+           s.hint != nullptr ? s.hint : "turn=page  OK=size  EXIT=back");
   canvas.drawText(kMarginX, kFooterY, buf, kChromeScale, gfx::kBlack);
 }
 

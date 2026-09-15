@@ -81,6 +81,9 @@ class Epd750Display : public hal::IDisplay {
   uint32_t framebufferBytes() const;
   bool framebufferInPsram() const { return fb_in_psram_; }
   const uint8_t* framebuffer() const { return framebuffer_; }
+  // The frame as it is on the glass (canvas orientation, framebufferBytes()),
+  // so a caller can tell which parts of a new canvas actually changed.
+  const uint8_t* pushedFrame() const { return pushed_; }
   uint16_t partialsSinceFullRefresh() const { return partials_since_full_; }
 
   // --- flush timing, split ------------------------------------------------

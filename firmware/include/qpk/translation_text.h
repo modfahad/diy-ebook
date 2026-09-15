@@ -19,7 +19,14 @@ namespace qpk {
 // verse that does not fit is cut, and nothing after it is written). Stops at
 // the first ayah that cannot be read. Returns the bytes written; `out` is
 // not NUL-terminated.
+//
+// Reads the run's records in one go, and -- given a `scratch` buffer big
+// enough for the stretch of TRANSLATION_DATA they point into -- the text in
+// one go too: two card reads for a surah instead of two per verse (Al-Baqarah
+// took 2.6 s the slow way on the board). Without scratch, or when the text
+// does not fit it, each verse is read on its own; the result is the same.
 uint32_t AppendTranslationVerses(const Reader& reader, uint32_t first_ayah_index, uint32_t count,
-                                 char* out, uint32_t capacity);
+                                 char* out, uint32_t capacity, char* scratch = nullptr,
+                                 uint32_t scratch_capacity = 0);
 
 }  // namespace qpk

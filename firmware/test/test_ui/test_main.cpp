@@ -863,6 +863,47 @@ void test_surah_picker_fits_the_panel() {
   }
 }
 
+void test_surah_picker_lists_a_translations_surahs_without_a_package() {
+  static uint16_t counts[114];
+  for (uint16_t i = 0; i < 114; ++i) counts[i] = static_cast<uint16_t>(3 + i * 2);
+
+  ui::SurahPickerState state;  // no reader: the translation reader's list
+  state.list_count = 114;
+  TEST_ASSERT_EQUAL_UINT16(0, ui::SurahPickerScreen::rowCount(state));  // no counts yet
+  state.list_ayah_counts = counts;
+  TEST_ASSERT_EQUAL_UINT16(114, ui::SurahPickerScreen::rowCount(state));
+
+  gfx::Canvas canvas = MakeCanvas();
+  for (uint16_t selected : {0, 17, 113}) {
+    state.selected = selected;
+    state.scroll_top = selected >= ui::kSurahPickerMaxVisibleRows
+                           ? static_cast<uint16_t>(selected - ui::kSurahPickerMaxVisibleRows + 1)
+                           : 0;
+    ui::SurahPickerScreen::render(canvas, state);
+    AssertFramedScreenFits(canvas, "surah picker, translation list");
+  }
+}
+
+void test_reader_screen_footer_takes_the_translation_hint_and_notices() {
+  gfx::Canvas canvas = MakeCanvas();
+  for (uint8_t scale = 3; scale <= 6; ++scale) {
+    ui::ReaderState state;
+    state.title = "Sahih International - 114 An-Nas";
+    state.scale = scale;
+    state.chars_per_line = ui::ReaderCharsPerLine(board::kWidth, scale);
+    state.lines_per_page = ui::ReaderLinesPerPage(scale);
+    state.page = 999;
+    state.page_count = 999;
+    for (const char* hint : {"OK=surah hold=size MENU=mark",
+                             "Bookmarked Sahih International surah 2 p",
+                             "No surah list: aligned Quran not on card"}) {
+      state.hint = hint;
+      ui::ReaderScreen::render(canvas, state);
+      TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, canvas.clippedPixels(), hint);
+    }
+  }
+}
+
 void test_reader_screen_fits_the_panel_at_every_scale() {
   const std::string title(net::kTitleMaxBytes - 1, 'W');
   gfx::Canvas canvas = MakeCanvas();
@@ -1224,6 +1265,85 @@ void test_library_books_shelf_fits_and_frames_the_selection() {
   TEST_ASSERT_FALSE(ui::LibraryScreen::isShelf(state));
 }
 
+void test_library_books_shelf_grey_mode_leaves_covers_to_the_grey_layer() {
+  net::LibraryIndex index;
+  for (uint8_t i = 0; i < 12; ++i) {
+    index.upsert(MakeEntry(static_cast<uint8_t>(i + 1), qpk::PackageType::kBook, "Book"));
+  }
+  static uint8_t cover[qpk::kCoverPixelBytes];
+  for (uint32_t i = 0; i < sizeof(cover); ++i) cover[i] = static_cast<uint8_t>(i * 37 + 11);
+
+  ui::LibraryState state;
+  state.index = &index;
+  state.view = ui::LibraryView::kItems;
+  state.category = static_cast<uint16_t>(qpk::PackageType::kBook);
+  state.grey_covers = true;
+  state.selected = 7;  // slot 7: second shelf row
+  for (uint8_t slot = 1; slot < ui::kLibraryShelfPageTiles; ++slot) state.shelf_covers[slot] = cover;
+
+  gfx::Canvas canvas = MakeCanvas();
+  ui::LibraryScreen::render(canvas, state);
+  AssertFramedScreenFits(canvas, "books shelf, grey covers");
+
+  int x = 0;
+  int y = 0;
+  ui::LibraryScreen::shelfCoverRect(3, &x, &y);
+  // Inside a cover: white on the canvas, the grey layer draws it.
+  for (int r = 2; r < 142; r += 7) {
+    for (int c = 2; c < 106; c += 5) TEST_ASSERT_FALSE(PixelIsBlackAt(x + c, y + r));
+  }
+  // No frame round the selected cover...
+  ui::LibraryScreen::shelfCoverRect(7, &x, &y);
+  TEST_ASSERT_FALSE(PixelIsBlackAt(x - 5, y + 20));
+  // ...its title box is inverted instead, inside its row's title band.
+  int bx = 0;
+  int by = 0;
+  int bw = 0;
+  int bh = 0;
+  ui::LibraryScreen::shelfTitleBand(1, &bx, &by, &bw, &bh);
+  TEST_ASSERT_TRUE(PixelIsBlackAt(x - 16, y + 144 + 6));
+  TEST_ASSERT_TRUE(y + 144 + 6 >= by && y + 144 + 6 < by + bh);
+
+  // Bands: byte-aligned, on the panel, and clear of every cover's pixels.
+  for (uint8_t shelf_row = 0; shelf_row < ui::kLibraryShelfRows; ++shelf_row) {
+    ui::LibraryScreen::shelfTitleBand(shelf_row, &bx, &by, &bw, &bh);
+    TEST_ASSERT_EQUAL_INT(0, bx % 8);
+    TEST_ASSERT_EQUAL_INT(0, bw % 8);
+    TEST_ASSERT_TRUE(bx >= 0 && bx + bw <= 800 && by + bh <= 480 && bh > 0);
+    for (uint8_t slot = 0; slot < ui::kLibraryShelfPageTiles; ++slot) {
+      ui::LibraryScreen::shelfCoverRect(slot, &x, &y);
+      const bool overlaps = by < y + 144 && y < by + bh;
+      TEST_ASSERT_FALSE(overlaps);
+    }
+  }
+
+  // The grey layer: each present cover at its place, white where there is none.
+  static uint8_t grey[ui::kShelfGreyBytes];
+  ui::LibraryScreen::composeShelfGrey(state, grey);
+  const auto level_at = [](int px, int py) {
+    const int col = px - ui::kShelfGreyX;
+    const int row = py - ui::kShelfGreyY;
+    return (grey[row * (ui::kShelfGreyW / 4) + (col >> 2)] >> (6 - 2 * (col & 3))) & 3;
+  };
+  for (uint8_t slot = 1; slot < 4; ++slot) {
+    ui::LibraryScreen::shelfCoverRect(slot, &x, &y);
+    for (int r = 0; r < 144; r += 13) {
+      for (int c = 0; c < 108; c += 11) {
+        const int expected = (cover[r * 27 + (c >> 2)] >> (6 - 2 * (c & 3))) & 3;
+        TEST_ASSERT_EQUAL_INT(expected, level_at(x + c, y + r));
+      }
+    }
+  }
+  ui::LibraryScreen::shelfCoverRect(0, &x, &y);  // "< Back": no cover
+  TEST_ASSERT_EQUAL_INT(3, level_at(x + 50, y + 70));
+  // "< Back" and 12 books are 13 rows: page 1 holds rows 10..12, so a cover
+  // handed in for slot 3 (row 13) belongs to nothing and is left out.
+  state.selected = 12;
+  ui::LibraryScreen::composeShelfGrey(state, grey);
+  ui::LibraryScreen::shelfCoverRect(3, &x, &y);  // row 13 does not exist
+  TEST_ASSERT_EQUAL_INT(3, level_at(x + 50, y + 70));
+}
+
 void test_page_image_screen_draws_the_page_number_and_jump_box_upright() {
   gfx::Canvas canvas = MakeCanvas();
   std::vector<uint8_t> bits(60 * 800, 0);
@@ -1295,6 +1415,8 @@ int main(int, char**) {
   RUN_TEST(test_library_screen_fits_the_panel_with_worst_case_content);
   RUN_TEST(test_selftest_screen_fits_the_panel_with_worst_case_content);
   RUN_TEST(test_surah_picker_fits_the_panel);
+  RUN_TEST(test_surah_picker_lists_a_translations_surahs_without_a_package);
+  RUN_TEST(test_reader_screen_footer_takes_the_translation_hint_and_notices);
   RUN_TEST(test_reader_screen_fits_the_panel_at_every_scale);
   RUN_TEST(test_quran_screen_fits_the_panel_on_both_paths);
 
@@ -1306,6 +1428,7 @@ int main(int, char**) {
   RUN_TEST(test_page_image_screen_refuses_a_missing_or_oversized_page);
   RUN_TEST(test_page_image_screen_draws_the_page_number_and_jump_box_upright);
   RUN_TEST(test_library_books_shelf_fits_and_frames_the_selection);
+  RUN_TEST(test_library_books_shelf_grey_mode_leaves_covers_to_the_grey_layer);
   RUN_TEST(test_bookmarks_screen_rows_places_and_fit);
   RUN_TEST(test_ascii_fold_keeps_translation_text_readable);
   RUN_TEST(test_page_image_screen_ribbon_marks_a_bookmarked_page);

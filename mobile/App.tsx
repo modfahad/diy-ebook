@@ -10,6 +10,7 @@ import Dashboard from './src/Dashboard';
 import Device from './src/Device';
 import Library from './src/Library';
 import Photos from './src/Photos';
+import { RenderWorkerProvider } from './src/render/RenderWorker';
 import { useSettings } from './src/settings';
 import { colors } from './src/ui';
 
@@ -22,31 +23,33 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
-        <StatusBar style="dark" />
-        <View style={styles.body}>
-          {!loaded ? (
-            <ActivityIndicator style={{ marginTop: 40 }} />
-          ) : tab === 'Dashboard' ? (
-            <Dashboard settings={settings} update={update} />
-          ) : tab === 'Library' ? (
-            <Library />
-          ) : tab === 'Device' ? (
-            <Device settings={settings} />
-          ) : tab === 'Converter' ? (
-            <Converter />
-          ) : (
-            <Photos settings={settings} />
-          )}
-        </View>
-        <View style={styles.tabs}>
-          {TABS.map((name) => (
-            <Pressable key={name} style={styles.tab} onPress={() => setTab(name)}>
-              <Text style={[styles.tabText, name === tab ? styles.tabActive : null]}>{name}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </SafeAreaView>
+      <RenderWorkerProvider>
+        <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
+          <StatusBar style="dark" />
+          <View style={styles.body}>
+            {!loaded ? (
+              <ActivityIndicator style={{ marginTop: 40 }} />
+            ) : tab === 'Dashboard' ? (
+              <Dashboard settings={settings} update={update} />
+            ) : tab === 'Library' ? (
+              <Library settings={settings} />
+            ) : tab === 'Device' ? (
+              <Device settings={settings} />
+            ) : tab === 'Converter' ? (
+              <Converter settings={settings} />
+            ) : (
+              <Photos settings={settings} />
+            )}
+          </View>
+          <View style={styles.tabs}>
+            {TABS.map((name) => (
+              <Pressable key={name} style={styles.tab} onPress={() => setTab(name)}>
+                <Text style={[styles.tabText, name === tab ? styles.tabActive : null]}>{name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </SafeAreaView>
+      </RenderWorkerProvider>
     </SafeAreaProvider>
   );
 }

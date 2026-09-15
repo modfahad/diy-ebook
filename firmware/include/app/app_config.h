@@ -114,6 +114,13 @@ constexpr bool kPortraitClockwise = true;
 // so turning one page never waits on the card. 48 KB each.
 constexpr uint8_t kPageCacheSlots = 3;
 
+// Books shelf covers in real greys: a shelf page is one 4-grey refresh, and
+// moving the selection within it updates only the title strips (flushWindow),
+// leaving the covers' greys on the glass. false: covers dithered to black and
+// white and a framed selection, all fast partial refreshes. TODO(hw): confirm
+// the window updates leave the covers intact (docs/board-test-checklist.md).
+constexpr bool kShelfGreyCovers = true;
+
 // A new photo, as a full 4-grey refresh, this often. Between them the clock
 // updates each minute with a fast black/white window refresh.
 constexpr uint8_t kPhotoIntervalMinutes = 10;

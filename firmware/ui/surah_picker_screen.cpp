@@ -52,7 +52,10 @@ const char* SurahName(uint16_t surah_id, char* fallback, size_t capacity) {
 }  // namespace
 
 uint16_t SurahPickerScreen::rowCount(const SurahPickerState& state) {
-  if (state.reader == nullptr || !state.reader->isOpen()) return 0;
+  if (state.reader == nullptr) {
+    return state.list_ayah_counts != nullptr ? state.list_count : 0;
+  }
+  if (!state.reader->isOpen()) return 0;
   return static_cast<uint16_t>(
       state.reader->recordCount(qpk::SectionId::kSurahIndex));
 }
@@ -94,8 +97,16 @@ void SurahPickerScreen::render(gfx::Canvas& canvas, const SurahPickerState& stat
     // us" handling.
     qpk::SurahRecord surah;
     char name_fallback[16];
-    if (state.reader->getSurah(static_cast<uint16_t>(item + 1), &surah) ==
-        qpk::Error::kOk) {
+    if (state.reader == nullptr) {
+      // A list handed in by the caller (the translation reader).
+      const uint16_t id = static_cast<uint16_t>(item + 1);
+      snprintf(buf, sizeof(buf), "%u. %s", static_cast<unsigned>(id),
+               SurahName(id, name_fallback, sizeof(name_fallback)));
+      canvas.drawText(kRowLeftX, y, buf, kBodyScale, gfx::kBlack);
+      snprintf(buf, sizeof(buf), "%u ayahs", static_cast<unsigned>(state.list_ayah_counts[item]));
+      canvas.drawText(kRowRightX, y, buf, kBodyScale, gfx::kBlack);
+    } else if (state.reader->getSurah(static_cast<uint16_t>(item + 1), &surah) ==
+               qpk::Error::kOk) {
       snprintf(buf, sizeof(buf), "%u. %s", static_cast<unsigned>(surah.surah_id),
                SurahName(surah.surah_id, name_fallback, sizeof(name_fallback)));
       canvas.drawText(kRowLeftX, y, buf, kBodyScale, gfx::kBlack);

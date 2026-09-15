@@ -162,6 +162,93 @@ reader. Nothing is broken by the delay.
 
 ---
 
+## 0. To do on the Windows PC (added 2026-09-14)
+
+The Windows desktop build and the Android app, both done by you on the
+Windows PC. The code for both is written and committed (`a76f30b`); neither has
+been built on Windows or run on a phone yet.
+
+### Get the repository onto the PC
+
+The repository exists only on the Mac so far. Either push it to GitHub from the
+Mac and `git clone` it on the PC, or copy the folder across (leave out every
+`node_modules/`, `firmware/.pio/` and `desktop/src-tauri/target/`).
+`firmware/include/app/dev_secrets.h` is not in git: copy
+`dev_secrets.example.h` and fill it in on the PC only if you build firmware
+there. Before pushing anywhere public, decide whether the ~20 MB of built
+Quran `.qpk` files (`sdcard-staging/`, `desktop/converter/examples/`) stay in
+the repository (docs/quran-content.md: the text is not redistributed from it).
+
+### Windows desktop app
+
+Either way below produces an `.msi` and an NSIS `.exe` installer.
+
+- **GitHub Actions (no setup):** push to GitHub; `.github/workflows/desktop.yml`
+  builds macOS and Windows and attaches the installers to the run as artifacts.
+- **Locally on the PC:**
+  1. Install Node.js 20, Rust (rustup, MSVC toolchain) with the Visual Studio
+     C++ Build Tools, and Git. WebView2 is already part of Windows 10/11.
+  2. In `packages\qpk-format`, `packages\protocol`, `desktop\converter`,
+     `desktop\device-client`, `desktop\app-bridge` and `desktop`, in that
+     order: `npm ci`, then `npm run build` where the package has a build
+     script, and `npm test` for the libraries.
+  3. In `desktop`: `node scripts/prepare-standalone.mjs` (bundles the bridge
+     and copies this PC's `node.exe` in as the sidecar), then
+     `npm run tauri build`.
+  4. Installers land in `desktop\src-tauri\target\release\bundle\msi\` and
+     `...\bundle\nsis\`.
+
+To check on Windows:
+- the app starts from the installed copy, with no repository checkout present
+  (Device tab → "bundled with the app")
+- the Browse buttons, a TXT/EPUB/PDF conversion and a photo preview
+- finding the device on the LAN and an upload, which needs the board in
+  transfer mode (Windows Firewall may prompt)
+
+### Android app (`mobile/`)
+
+Plan, milestones and details: [android.md](android.md).
+
+**Set up and run on the phone:**
+1. Install JDK 17 and Android Studio (SDK, platform tools). Set `ANDROID_HOME`
+   to `%LOCALAPPDATA%\Android\Sdk` and add `%ANDROID_HOME%\platform-tools` to
+   `PATH`.
+2. On the phone: Developer options → USB debugging, connect by USB, accept the
+   prompt; `adb devices` should list it.
+3. Build the shared libraries first (step 2 of the desktop build above, for
+   `packages\protocol`, `packages\qpk-format`, `desktop\device-client`,
+   `desktop\converter`). Then, in `mobile`:
+   ```
+   npm install
+   npm run worker
+   npx expo prebuild --platform android
+   npx expo run:android --device
+   ```
+   `npm run worker` builds the render worker page (pdf.js, the converter and
+   picture decoding for a hidden WebView) into
+   `src/render/workerHtml.generated.ts`; the app does not compile without it.
+
+**First-run checks:**
+- the app opens, and the address and token entered on the Dashboard survive a
+  restart
+- "Check connection" reaches the device over Wi-Fi (plain HTTP is allowed by
+  `usesCleartextTraffic`)
+- Device tab: status, library list, delete, installing a picked `.qpk` (the
+  first real use of base64 chunk bodies) and a firmware update
+- Photos tab: set time zone
+- picking a file from Downloads/Drive reads correctly (`File.arrayBuffer()` on
+  a `content://` URI)
+- Hermes has `TextDecoder` (the converter needs it)
+
+**Also check on the phone** (android.md milestones 5–7, built 2026-09-14 but
+not yet run on Android):
+- Photos: choose pictures, contrast −/+, upload, delete, send the time zone.
+- Library: add `.qpk` files, covers shown, Validate, Send to device, Share,
+  Delete.
+- Converter: a TXT, an EPUB (cover picked up automatically) and a PDF with
+  "keep layout" (page pictures, progress, preview page turns); Save to
+  library, Send to device, Share. A big PDF is the memory test.
+
 ## 1. Blocked on materials
 
 Two physical things gate more than their size suggests.
@@ -408,7 +495,7 @@ at all".
   - **The Latin `(7)` was kept, deliberately.** It is still what a package built before markers existed draws, and still what gets drawn when a package *claims* a marker range its atlas does not hold. A hole where a verse boundary should be would be worse than an obviously-Latin stand-in. Both paths are host-tested by glyph count: markers present blits exactly one more glyph per ayah than the same fixture without the key, and a package claiming `"900:3"` blits exactly the same as one claiming nothing.
   - **The parser refuses rather than half-succeeds.** `Reader::ayahMarkerGlyphs()` rejects an empty value, a missing field, a wrong separator, trailing junk, a zero count, and a range that would wrap past `u16` — eleven malformed values are host-tested. A partially-filled pair would not be an error on screen, it would be the *wrong glyph* on screen.
   - **Item 3 came along for free.** The rebuild produces the retitled package as a side effect, and the content id is unchanged (`fe9f9a8b…`, derived from title/language/script only), so the staged file is the same name — now carrying both the title fix and the markers. Still not on the card.
-  - **Which packages actually have markers, so this is not read as universal.** Only `quran-full-shaped.qpk` (staged as `fe9f9a8b…`) — checked, not assumed. `al-fatihah-glyph-atlas.qpk` and `sdcard-staging/DEVICE/glyph-atlas-demo.qpk` are built from a *different* atlas (`data/all/glyph-atlas.json` is not what `build-fatihah-glyph-atlas.mjs` reads), still carry no marker key, and still draw the Latin `(n)`. That is the fallback working as designed, not a gap to close: the demo package exists to prove the blitter, not to be read from.
+  - **Which packages actually have markers, so this is not read as universal.** Only `quran-full-shaped.qpk` (staged as `fe9f9a8b…`) — checked, not assumed. `al-fatihah-glyph-atlas.qpk` and `sdcard-staging/DEVICE/glyph-atlas-demo.qpk` are built from a *different* atlas (`data/all/glyph-atlas.json` is not what `build-fatihah-glyph-atlas.mjs` reads), still carry no marker key, and still draw the Latin `(n)`. That is the fallback working as designed, not a gap to close: the demo package exists to prove the blitter, not to be read from. (`sdcard-staging/DEVICE/glyph-atlas-demo.qpk` was deleted on 2026-09-14, after the `GLYPH_ATLAS_DEMO` build that opened it was removed; `al-fatihah-glyph-atlas.qpk` in `desktop/converter/examples` still shows the same thing.)
   - **`content_version` is still 1 on a package whose bytes changed** (5.06MB → 5.10MB, same `fe9f9a8b…`). Checked whether anything decides *not* to reinstall on `(content_id, content_version)`: the only comparison is `upload_manager.cpp`'s resume check, and it also compares `size` and `payload_crc32`, both of which changed — so a stale session is correctly discarded, not wrongly resumed. Left at 1 deliberately: the shaped build passes the source package's version through on purpose, and changing package identity fields is not something to do in a session that cannot verify on hardware. Recorded so the next pass does not re-derive it.
   - **`render_ui_preview.cpp` is now built by `run_host_tests.py`**, compile-only (it has its own `main()`, so it cannot join a suite, and nothing asserts on it). Without that it would rot silently the next time a `ui::` signature moves — which is exactly what happened to the whole test suite during the no-compiler period.
   - **Touched:** `shape_glyph_atlas.py` (marker pass, `--no-ayah-markers`), `packages/qpk-format` + `qpk_format.h` (`kAyahMarkerGlyphs = 10`), `quran-package.ts` (`extraMetadata`), `build-full-quran-shaped.mjs` (density + coverage checks), `qpk_reader.{h,cpp}`, `ui/quran_screen.cpp`, `render_ui_preview.cpp`, `run_host_tests.py`, the `MiniShapedQuran` fixture, and both docs. **Host tests 157 → 163, all passing; `pio run` clean; `packages/qpk-format` 23/23 and `desktop/converter` 44/44 still green.**

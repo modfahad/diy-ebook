@@ -67,7 +67,23 @@ class Reader {
   // the rule that failed. `file` must outlive the Reader; the Reader does not
   // take ownership and does not close it.
   Error open(hal::IFile* file);
+  // The same, but with rule 13's fixed-index checksum sweep left to the
+  // caller when `verify_index_checksums` is false: the device remembers
+  // packages that already passed it (net::VerifiedPackages), because for a
+  // big book the sweep is seconds of card reads on every open. Every other
+  // rule is still checked. The caller then runs verifyIndexChecksums() itself
+  // for a package it has not seen pass.
+  Error open(hal::IFile* file, bool verify_index_checksums);
   void close();
+
+  // Rule 13's eager half on its own: every fixed-size index section's CRC.
+  Error verifyIndexChecksums() const;
+
+  // Up to `count` whole records of `id` from record `first`, straight into
+  // `dst`: one read instead of one per record. Stops at the section's end and
+  // at what `capacity` holds. Returns the records copied; 0 when none can be.
+  uint32_t readRecordRange(SectionId id, uint32_t first, uint32_t count, uint8_t* dst,
+                           uint32_t capacity) const;
 
   bool isOpen() const { return file_ != nullptr; }
 

@@ -455,6 +455,23 @@ npm run tauri build --prefix desktop
 credentials), build output, the bundled Node and the fetched Quran data out of
 any commit.
 
+### 11.4 Grey covers on the Books shelf (host-tested, not yet flashed)
+
+`app::kShelfGreyCovers` (default true). The shelf's canvas leaves each cover's
+inside white and marks the selection as its title drawn white on black;
+`LibraryScreen::composeShelfGrey` puts the page's covers into one 760x322
+2bpp layer, and `FlushShelfGrey` (main.cpp) sends canvas + layer as one
+4-grey refresh when a shelf page is entered or anything outside the title
+strips changed. Moving the selection within a page compares the new canvas
+with the frame on the glass (`Epd750Display::pushedFrame`) and, if only the
+title strips (`LibraryScreen::shelfTitleBand`, byte-aligned, clear of every
+cover) changed, updates just those with `flushWindow` -- the B1 window update
+that leaves the home screen's photo intact. Leaving the shelf is a full
+black/white refresh, as after any grey frame. With the flag false the shelf is
+the old dithered covers and frame. Test: `test_library_books_shelf_grey_mode_
+leaves_covers_to_the_grey_layer`. The full checklist for the next board
+session is [board-test-checklist.md](board-test-checklist.md).
+
 **To verify on the board, all at once:** book open time, resuming a book
 after a restart, page number and Go to page (with MENU for chapters), the
 Books shelf, text size in a text book, the reset line in the Device tab after
