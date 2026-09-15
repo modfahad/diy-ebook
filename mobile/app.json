@@ -27,6 +27,12 @@
           }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c0b08d92-4a88-4e1f-9749-2c82524eef92"
+      }
+    },
+    "owner": "modfahad"
   }
 }
