@@ -45,11 +45,54 @@ export function useRenderWorker(): RenderWorker {
   return worker;
 }
 
+/** How long a call waits for the page to (re)start before giving up. */
+const START_TIMEOUT_MS = 60_000;
+
 export function RenderWorkerProvider({ children }: { children: ReactNode }) {
   const view = useRef<WebView>(null);
   const pending = useRef(new Map<number, Pending>());
   const nextId = useRef(1);
   const [ready, setReady] = useState(false);
+  const readyNow = useRef(false);
+  const waiters = useRef(new Set<() => void>());
+  // Bumped to mount a fresh WebView: once Android has killed a WebView's
+  // renderer -- which it does to background apps, and opening the file
+  // picker backgrounds this one -- that WebView cannot be reloaded, only
+  // replaced.
+  const [generation, setGeneration] = useState(0);
+
+  /** Fails every call the page was working on: its answers will never come. */
+  const failPending = useCallback((reason: string) => {
+    const lost = [...pending.current.values()];
+    pending.current.clear();
+    for (const entry of lost) entry.reject(new Error(reason));
+  }, []);
+
+  const restart = useCallback(() => {
+    readyNow.current = false;
+    setReady(false);
+    failPending('the converter was closed by Android to save memory; try again');
+    setGeneration((current) => current + 1);
+  }, [failPending]);
+
+  const whenReady = useCallback(
+    () =>
+      readyNow.current
+        ? Promise.resolve()
+        : new Promise<void>((resolve, reject) => {
+            const done = () => {
+              clearTimeout(timer);
+              waiters.current.delete(done);
+              resolve();
+            };
+            const timer = setTimeout(() => {
+              waiters.current.delete(done);
+              reject(new Error('the converter did not start; close and reopen the app'));
+            }, START_TIMEOUT_MS);
+            waiters.current.add(done);
+          }),
+    [],
+  );
 
   const onMessage = useCallback((event: WebViewMessageEvent) => {
     let message: { id: number; kind: string; [key: string]: unknown };
@@ -59,7 +102,11 @@ export function RenderWorkerProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (message.kind === 'ready') {
+      // A fresh page: whatever an earlier page was doing is gone with it.
+      failPending('the converter restarted; try again');
+      readyNow.current = true;
       setReady(true);
+      for (const wake of [...waiters.current]) wake();
       return;
     }
     const entry = pending.current.get(message.id);
@@ -80,11 +127,13 @@ export function RenderWorkerProvider({ children }: { children: ReactNode }) {
         entry.resolve(result);
       }
     }
-  }, []);
+  }, [failPending]);
 
-  const call = useCallback<RenderWorker['call']>((command, args = {}, options = {}) => {
+  const call = useCallback<RenderWorker['call']>(async (command, args = {}, options = {}) => {
+    // Sending into a page that is still starting would lose the message.
+    await whenReady();
     const webview = view.current;
-    if (!webview) return Promise.reject(new Error('the render worker is not running'));
+    if (!webview) throw new Error('the render worker is not running');
     const id = nextId.current++;
     const finalArgs: Record<string, unknown> = { ...args };
     for (const [name, bytes] of Object.entries(options.bytes ?? {})) {
@@ -111,7 +160,7 @@ export function RenderWorkerProvider({ children }: { children: ReactNode }) {
         `window.__renderWorker.run(${JSON.stringify({ id, command, args: finalArgs })}); true;`,
       );
     });
-  }, []);
+  }, [whenReady]);
 
   const value = useMemo<RenderWorker>(() => ({ ready, call }), [ready, call]);
 
@@ -121,16 +170,14 @@ export function RenderWorkerProvider({ children }: { children: ReactNode }) {
       {/* Kept mounted but invisible: a zero-size WebView may be suspended. */}
       <View pointerEvents="none" style={{ position: 'absolute', width: 2, height: 2, opacity: 0, left: -10, top: -10 }}>
         <WebView
+          key={generation}
           ref={view}
           source={{ html: workerHtml, baseUrl: 'https://render-worker.local/' }}
           originWhitelist={['*']}
           javaScriptEnabled
           onMessage={onMessage}
-          onContentProcessDidTerminate={() => view.current?.reload()}
-          onRenderProcessGone={() => {
-            setReady(false);
-            view.current?.reload();
-          }}
+          onContentProcessDidTerminate={restart}
+          onRenderProcessGone={restart}
         />
       </View>
     </Context.Provider>
