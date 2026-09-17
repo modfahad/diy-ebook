@@ -11,11 +11,12 @@
 // plus a second pass in the firmware's own weaker profile. Browsing and
 // validating are deliberately different jobs.
 //
-// Many books go in and out at once: "Add books" converts or copies a whole
-// selection into the folder (addBooks.ts), and the ticked rows are sent to the
-// device one after another. Strictly one after another -- the device keys an
-// upload session by content id and resyncs it, and every upload is its own
-// bridge process, so sending in parallel would be wrong, not just slower.
+// Many books go in and out at once. "Add books" is two steps: pick any number
+// of files, fill in the details for each (or for all of them at once), then
+// convert the lot (addBooks.ts). The ticked rows are sent to the device one
+// after another -- strictly one after another: the device keys an upload
+// session by content id and resyncs it, and every upload is its own bridge
+// process, so sending in parallel would be wrong, not just slower.
 
 import { useCallback, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -28,17 +29,23 @@ import {
   type InspectResult,
   type PackageSummaryRow,
 } from "./bridge";
-import { addToLibrary, BOOK_EXTENSIONS } from "./addBooks";
+import { addToLibrary, bookKind, BOOK_EXTENSIONS } from "./addBooks";
 import { RENDER_CANCELLED } from "./pdfPages";
 import { baseName, formatBytes } from "./format";
 import { Badge, Card, Empty, Failure, Meter, Note, PathInput } from "./ui";
-import { CoverThumb } from "./cover";
+import { CoverThumb, pictureToCover } from "./cover";
 import type { Settings } from "./settings";
 
-/** One file in an "Add books" run. */
-interface AddItem {
+/** One file waiting to be added, with the details filled in for it. */
+interface BookRow {
+  id: number;
   source: string;
-  state: "waiting" | "working" | "added" | "present" | "failed" | "skipped";
+  kind: string;
+  title: string;
+  author: string;
+  language: string;
+  cover: Uint8Array | null;
+  state: "ready" | "working" | "added" | "present" | "failed" | "skipped";
   detail?: string;
 }
 
@@ -66,6 +73,12 @@ const STOP_THE_BATCH = new Set([
   "REPO_NOT_FOUND",
 ]);
 
+/** Rows that still need converting: new, or failed or skipped last time. */
+const toConvert = (row: BookRow) =>
+  row.state === "ready" || row.state === "failed" || row.state === "skipped";
+
+let nextBookId = 1;
+
 export default function Library({
   settings,
   update,
@@ -83,10 +96,15 @@ export default function Library({
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const [adds, setAdds] = useState<AddItem[]>([]);
+  const [books, setBooks] = useState<BookRow[]>([]);
   const [adding, setAdding] = useState(false);
   const [keepPdfLayout, setKeepPdfLayout] = useState(true);
+  const [allAuthor, setAllAuthor] = useState("");
+  const [allLanguage, setAllLanguage] = useState("");
+  const [pickError, setPickError] = useState<string | null>(null);
   const addAbort = useRef<AbortController | null>(null);
+  const pictureInput = useRef<HTMLInputElement>(null);
+  const pictureFor = useRef<number | null>(null);
 
   const [sends, setSends] = useState<SendItem[]>([]);
   const [sending, setSending] = useState(false);
@@ -137,46 +155,86 @@ export default function Library({
     onGoToTab?.("device");
   };
 
-  // --- adding books ------------------------------------------------------------
+  // --- adding books: pick, fill in, convert --------------------------------------
 
-  const setAdd = (index: number, patch: Partial<AddItem>) =>
-    setAdds((previous) => previous.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  const setBook = (id: number, patch: Partial<BookRow>) =>
+    setBooks((previous) => previous.map((book) => (book.id === id ? { ...book, ...patch } : book)));
 
-  const addBooks = async () => {
+  const chooseBooks = async () => {
+    setPickError(null);
     const picked = await open({
       multiple: true,
       directory: false,
       filters: [{ name: "Books and packages", extensions: BOOK_EXTENSIONS }],
     });
     const sources = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
-    if (sources.length === 0) return;
+    setBooks((previous) => {
+      const listed = new Set(previous.map((book) => book.source));
+      const fresh = sources
+        .filter((source) => !listed.has(source))
+        .map<BookRow>((source) => ({
+          id: nextBookId++,
+          source,
+          kind: bookKind(source),
+          title: "",
+          author: allAuthor,
+          language: allLanguage,
+          cover: null,
+          state: "ready",
+        }));
+      return [...previous, ...fresh];
+    });
+  };
 
-    setAdds(sources.map((source) => ({ source, state: "waiting" })));
+  const fillEveryBook = () =>
+    setBooks((previous) =>
+      previous.map((book) =>
+        book.kind === "qpk" || !toConvert(book)
+          ? book
+          : { ...book, author: allAuthor, language: allLanguage },
+      ),
+    );
+
+  const choosePicture = (file: File | undefined) => {
+    const id = pictureFor.current;
+    pictureFor.current = null;
+    if (!file || id === null) return;
+    pictureToCover(file)
+      .then((cover) => setBook(id, { cover }))
+      .catch((failure: unknown) =>
+        setBook(id, {
+          detail: `Could not open ${file.name}: ${failure instanceof Error ? failure.message : String(failure)}`,
+        }),
+      );
+  };
+
+  const convertBooks = async () => {
+    const batch = books.filter(toConvert);
+    if (batch.length === 0) return;
     setAdding(true);
     const controller = new AbortController();
     addAbort.current = controller;
+    for (const book of batch) setBook(book.id, { state: "ready", detail: undefined });
     try {
-      for (const [index, source] of sources.entries()) {
+      for (const book of batch) {
         if (controller.signal.aborted) {
-          setAdd(index, { state: "skipped", detail: "cancelled" });
+          setBook(book.id, { state: "skipped", detail: "cancelled" });
           continue;
         }
-        setAdd(index, { state: "working", detail: "starting" });
+        setBook(book.id, { state: "working", detail: "starting" });
         try {
-          const result = await addToLibrary(source, dir, {
+          const result = await addToLibrary(book.source, dir, {
             keepPdfLayout,
+            details: book,
             signal: controller.signal,
-            onStage: (stage) => setAdd(index, { detail: stage }),
+            onStage: (stage) => setBook(book.id, { detail: stage }),
           });
-          setAdd(index, {
-            state: result.added ? "added" : "present",
-            detail: result.path,
-          });
+          setBook(book.id, { state: result.added ? "added" : "present", detail: result.path });
         } catch (failure) {
           const message =
             failure instanceof Error ? failure.message : describeFailure(failure).message;
           const cancelled = message === RENDER_CANCELLED || controller.signal.aborted;
-          setAdd(index, {
+          setBook(book.id, {
             state: cancelled ? "skipped" : "failed",
             detail: cancelled ? "cancelled" : message,
           });
@@ -265,7 +323,9 @@ export default function Library({
   const sendTotal = sends.reduce((sum, item) => sum + item.totalBytes, 0);
   const current = sends.find((item) => item.state === "sending");
 
-  const addDone = adds.filter((item) => item.state !== "waiting" && item.state !== "working").length;
+  const pending = books.filter(toConvert);
+  const remaining = books.filter((book) => book.state === "ready" || book.state === "working").length;
+  const finished = books.filter((book) => book.state === "added" || book.state === "present");
 
   return (
     <div className="stack">
@@ -304,73 +364,220 @@ export default function Library({
 
       <Card
         title="Add books"
-        subtitle="Pick as many as you like. PDF, EPUB and TXT are converted and validated; .qpk packages are copied. Each lands in this library folder under BOOKS, QURAN, TRANSLATIONS or TAFSIR."
+        subtitle="Choose any number of files, fill in their details, then convert them all at once. PDF, EPUB and TXT are converted and validated; .qpk packages are copied as they are. Each lands in this library folder under BOOKS, QURAN, TRANSLATIONS or TAFSIR."
       >
         <div className="row wrap">
           <button
-            className="primary"
+            type="button"
+            className={books.length === 0 ? "primary" : undefined}
             onClick={() => {
-              addBooks().catch((failure) =>
-                setAdds([{ source: "(file dialog)", state: "failed", detail: String(failure) }]),
-              );
+              chooseBooks().catch((failure) => setPickError(String(failure)));
             }}
-            disabled={dir === "" || adding || sending}
+            disabled={dir === "" || adding}
           >
-            {adding ? `Adding ${Math.min(addDone + 1, adds.length)} of ${adds.length}...` : "Choose books..."}
+            {books.length === 0 ? "Choose books..." : "Choose more..."}
           </button>
-          {adding && (
-            <button type="button" onClick={() => addAbort.current?.abort()}>
-              Cancel
-            </button>
+          {books.length > 0 && !adding && (
+            <>
+              <button type="button" onClick={() => setBooks([])}>
+                Clear list
+              </button>
+              {finished.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBooks((previous) =>
+                      previous.filter((book) => book.state !== "added" && book.state !== "present"),
+                    )
+                  }
+                >
+                  Remove finished
+                </button>
+              )}
+            </>
           )}
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={keepPdfLayout}
-              disabled={adding}
-              onChange={(e) => setKeepPdfLayout(e.currentTarget.checked)}
-            />
-            <span>
-              Keep each PDF's page layout{" "}
-              <span className="muted">(pages as pictures; slower to convert)</span>
-            </span>
-          </label>
         </div>
         {dir === "" && <Note>Choose a library folder above first -- books are added to it.</Note>}
-        <p className="muted">
-          Titles and covers come from each document. To set a title, pick a cover picture or
-          preview pages first, convert that book in the Converter tab.
-        </p>
+        {pickError && <Note kind="error">{pickError}</Note>}
 
-        {adds.length > 0 && (
-          <div className="table-scroll">
-            <table>
-              <tbody>
-                {adds.map((item) => (
-                  <tr key={item.source} className={item.state === "failed" ? "row-bad" : undefined}>
-                    <td>
-                      <code title={item.source}>{baseName(item.source)}</code>
-                    </td>
-                    <td className="nowrap">
-                      {item.state === "waiting" && <span className="muted">waiting</span>}
-                      {item.state === "working" && <Badge>working</Badge>}
-                      {item.state === "added" && <Badge tone="good">added</Badge>}
-                      {item.state === "present" && <Badge>already in library</Badge>}
-                      {item.state === "failed" && <Badge tone="bad">failed</Badge>}
-                      {item.state === "skipped" && <Badge tone="warn">skipped</Badge>}
-                    </td>
-                    <td className={item.state === "failed" ? "bad" : "muted"}>
-                      {item.state === "added" || item.state === "present" ? (
-                        <code>{item.detail}</code>
+        {books.length > 0 && (
+          <>
+            <div className="book-all">
+              <span className="field-label">For every book</span>
+              <input
+                value={allAuthor}
+                onChange={(e) => setAllAuthor(e.currentTarget.value)}
+                placeholder="Author"
+                disabled={adding}
+              />
+              <input
+                value={allLanguage}
+                onChange={(e) => setAllLanguage(e.currentTarget.value)}
+                placeholder="Language, e.g. en"
+                disabled={adding}
+              />
+              <button type="button" onClick={fillEveryBook} disabled={adding}>
+                Fill in every book
+              </button>
+            </div>
+
+            <div className="book-list">
+              {books.map((book) => {
+                const editable = book.kind !== "qpk" && toConvert(book) && !adding;
+                return (
+                  <div key={book.id} className={book.state === "failed" ? "book book-bad" : "book"}>
+                    <div className="book-cover">
+                      {book.kind === "qpk" ? (
+                        <Badge>package</Badge>
                       ) : (
-                        item.detail
+                        <>
+                          <CoverThumb
+                            levels={book.cover}
+                            title={book.title || baseName(book.source)}
+                            scale={0.45}
+                          />
+                          <div className="row">
+                            <button
+                              type="button"
+                              className="small"
+                              disabled={!editable}
+                              onClick={() => {
+                                pictureFor.current = book.id;
+                                pictureInput.current?.click();
+                              }}
+                            >
+                              Cover...
+                            </button>
+                            {book.cover && (
+                              <button
+                                type="button"
+                                className="small"
+                                disabled={!editable}
+                                onClick={() => setBook(book.id, { cover: null })}
+                                aria-label="Remove the chosen cover"
+                              >
+                                x
+                              </button>
+                            )}
+                          </div>
+                        </>
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+
+                    <div className="book-fields">
+                      <div className="row">
+                        <code className="grow" title={book.source}>
+                          {baseName(book.source)}
+                        </code>
+                        <Badge>{book.kind.toUpperCase() || "?"}</Badge>
+                      </div>
+                      {book.kind === "qpk" ? (
+                        <p className="muted">Copied as it is -- a package keeps its own details.</p>
+                      ) : (
+                        <div className="book-inputs">
+                          <input
+                            className="book-title"
+                            value={book.title}
+                            onChange={(e) => setBook(book.id, { title: e.currentTarget.value })}
+                            placeholder="Title (empty: the document's own, or the file name)"
+                            disabled={!editable}
+                          />
+                          <input
+                            value={book.author}
+                            onChange={(e) => setBook(book.id, { author: e.currentTarget.value })}
+                            placeholder="Author"
+                            disabled={!editable}
+                          />
+                          <input
+                            value={book.language}
+                            onChange={(e) => setBook(book.id, { language: e.currentTarget.value })}
+                            placeholder="Language"
+                            disabled={!editable}
+                          />
+                        </div>
+                      )}
+                      {book.detail && book.state !== "ready" && (
+                        <span className={book.state === "failed" ? "bad" : "muted"}>
+                          {book.state === "added" || book.state === "present" ? (
+                            <code>{book.detail}</code>
+                          ) : (
+                            book.detail
+                          )}
+                        </span>
+                      )}
+                      {book.detail && book.state === "ready" && (
+                        <span className="bad">{book.detail}</span>
+                      )}
+                    </div>
+
+                    <div className="book-state">
+                      {book.state === "ready" && <span className="muted">ready</span>}
+                      {book.state === "working" && <Badge>working</Badge>}
+                      {book.state === "added" && <Badge tone="good">added</Badge>}
+                      {book.state === "present" && <Badge>already in library</Badge>}
+                      {book.state === "failed" && <Badge tone="bad">failed</Badge>}
+                      {book.state === "skipped" && <Badge tone="warn">skipped</Badge>}
+                      {!adding && (
+                        <button
+                          type="button"
+                          className="small"
+                          onClick={() =>
+                            setBooks((previous) => previous.filter((other) => other.id !== book.id))
+                          }
+                          aria-label={`Remove ${baseName(book.source)} from the list`}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <input
+              ref={pictureInput}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                choosePicture(e.currentTarget.files?.[0]);
+                e.currentTarget.value = "";
+              }}
+            />
+
+            <div className="row wrap">
+              <button
+                className="primary"
+                onClick={() => void convertBooks()}
+                disabled={dir === "" || adding || sending || pending.length === 0}
+              >
+                {adding
+                  ? `Converting... ${remaining} left`
+                  : `Convert & add ${pending.length} book${pending.length === 1 ? "" : "s"}`}
+              </button>
+              {adding && (
+                <button type="button" onClick={() => addAbort.current?.abort()}>
+                  Cancel
+                </button>
+              )}
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={keepPdfLayout}
+                  disabled={adding}
+                  onChange={(e) => setKeepPdfLayout(e.currentTarget.checked)}
+                />
+                <span>
+                  Keep each PDF's page layout{" "}
+                  <span className="muted">(pages as pictures; slower to convert)</span>
+                </span>
+              </label>
+            </div>
+            <p className="muted">
+              An EPUB without a chosen cover uses its own. To preview pages before writing,
+              convert that book in the Converter tab.
+            </p>
+          </>
         )}
       </Card>
 

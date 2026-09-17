@@ -71,3 +71,9 @@ jobs:
             desktop/src-tauri/target/release/bundle/dmg/*.dmg
             desktop/src-tauri/target/release/bundle/msi/*.msi
             desktop/src-tauri/target/release/bundle/nsis/*.exe
+
+      # After the upload, so a failing test still leaves the installers to
+      # look at. It runs here rather than earlier because the app embeds
+      # desktop/dist, which the installer build has just produced.
+      - name: Test the Rust side
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib

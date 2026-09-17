@@ -110,9 +110,26 @@ export async function convert(
     );
   }
 
-  const document = await parseDocument(data, kind, options);
+  const parsed = await parseDocument(data, kind, options);
+  const fallback = options.title || parsed.title ? undefined : titleFromFilename(options.filename);
+  const document = fallback ? { ...parsed, title: fallback } : parsed;
   const result = buildBookPackage(document, options);
   return { ...result, document };
+}
+
+/**
+ * The title a book gets when neither the caller nor the document names one.
+ * Without it every such book is "Untitled", and since the title is part of the
+ * content id (content-id.ts), two untitled books would share one id -- the
+ * second would replace the first on the device.
+ */
+export function titleFromFilename(filename: string | undefined): string | undefined {
+  const stem = (filename ?? '')
+    .replace(/^.*[\\/]/u, '')
+    .replace(/\.[^.]+$/u, '')
+    .replace(/[_\s]+/gu, ' ')
+    .trim();
+  return stem === '' ? undefined : stem;
 }
 
 /** Convert, then validate what came out. Nothing installs without this. */

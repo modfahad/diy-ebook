@@ -67,8 +67,10 @@ through `expo-file-system`'s `File.arrayBuffer()`.
    and bundled; not yet run)* Packages live in the app's documents folder
    (`library/`): added from the file picker or saved by the Converter; each
    can be validated, sent to the device, shared, or deleted. "Add books…"
-   takes many files at once -- PDF, EPUB and TXT converted in the render
-   worker, `.qpk` copied, a package already present skipped -- and ticked
+   takes many files at once: fill in each book's title, author, language and
+   cover (or an author and language for all), then convert them together --
+   PDF, EPUB and TXT in the render worker, `.qpk` copied, a package already
+   present skipped. Ticked
    packages are sent to the device together, one after another.
    *(app code type-checked; the render worker's side is not, and none of it
    has run yet)*

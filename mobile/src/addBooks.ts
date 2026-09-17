@@ -1,9 +1,9 @@
 // Adding many books to the phone's library at once -- the Android twin of
 // desktop/src/addBooks.ts.
 //
-// One file at a time, each the way the Converter tab would do it with its
-// defaults: a .qpk is copied as it is; a PDF, EPUB or TXT is converted and
-// validated in the render worker and saved only if it passes. A package whose
+// One file at a time, each the way the Converter tab would do it, with the
+// details filled in for it: a .qpk is copied as it is; a PDF, EPUB or TXT is
+// converted and validated in the render worker and saved only if it passes. A package whose
 // content id and version are already in the library is not saved again --
 // content ids come from the content, so converting the same book twice is
 // caught too.
@@ -11,6 +11,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 
+import { encodeBase64 } from './base64';
 import { packageIdentity, readBytes, saveToLibrary } from './packageStore';
 import type { RenderWorker, WorkerProgress } from './render/RenderWorker';
 
@@ -56,11 +57,33 @@ function describeProgress(progress: WorkerProgress): string {
 }
 
 /** `known` holds the identities already in the library; it is updated as books are added. */
+/**
+ * What a person can set for one book before it is converted. Empty fields are
+ * not sent, so the document's own details still apply -- and a book with no
+ * title of its own is titled from its file name by the converter.
+ */
+export interface BookDetails {
+  title: string;
+  author: string;
+  language: string;
+  /** Cover levels from a chosen picture; without one an EPUB's own cover is used. */
+  cover: Uint8Array | null;
+}
+
+export function bookKind(name: string): string {
+  return extension(name);
+}
+
+/** `known` holds the identities already in the library; it is updated as books are added. */
 export async function addToLibrary(
   book: PickedBook,
   worker: RenderWorker,
   known: Set<string>,
-  { keepPdfLayout, onStage }: { keepPdfLayout: boolean; onStage?: (stage: string) => void },
+  {
+    keepPdfLayout,
+    details,
+    onStage,
+  }: { keepPdfLayout: boolean; details?: BookDetails; onStage?: (stage: string) => void },
 ): Promise<AddResult> {
   const kind = extension(book.name);
   if (!BOOK_EXTENSIONS.includes(kind)) {
@@ -68,12 +91,18 @@ export async function addToLibrary(
   }
   onStage?.('reading');
   const source = await readBytes(new File(book.uri));
-  const stem = book.name.replace(/\.[^.]+$/u, '').slice(0, 60);
+  const title = details?.title.trim() ?? '';
+  const stem = (title || book.name.replace(/\.[^.]+$/u, '')).slice(0, 60);
 
   let bytes = source;
   if (kind !== 'qpk') {
     const options: Record<string, unknown> = { filename: book.name };
-    if (kind === 'epub') {
+    if (title) options.title = title;
+    if (details?.author.trim()) options.author = details.author.trim();
+    if (details?.language.trim()) options.language = details.language.trim();
+    if (details?.cover) {
+      options.cover = encodeBase64(details.cover);
+    } else if (kind === 'epub') {
       // A cover that cannot be used is not worth failing the book over.
       onStage?.('reading the cover');
       try {

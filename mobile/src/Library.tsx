@@ -2,23 +2,30 @@
 // Converter -- with covers, validation, sending to the device and sharing.
 // The phone-side twin of the desktop Library tab (docs/android.md milestone 6).
 //
-// Many books go in and out at once: "Add books" converts or copies a whole
-// selection (addBooks.ts), and the ticked packages are sent to the device one
-// after another. Strictly one after another -- the device keys an upload
-// session by content id and resyncs it, so sending in parallel would be
-// wrong, not just slower.
+// Many books go in and out at once. "Add books" is two steps: choose any
+// number of files, fill in the details for each (or for all of them at once),
+// then convert the lot (addBooks.ts). The ticked packages are sent to the
+// device one after another -- strictly one after another: the device keys an
+// upload session by content id and resyncs it, so sending in parallel would
+// be wrong, not just slower.
 
+import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 
-import { addToLibrary, pickBooks } from './addBooks';
+import { COVER_HEIGHT, COVER_WIDTH } from '@quran-device/qpk-format';
+
+import { addToLibrary, bookKind, pickBooks, type BookDetails, type PickedBook } from './addBooks';
+import { decodeBase64 } from './base64';
 import { clientFor } from './deviceClient';
 import { formatBytes } from './format';
 import { listLibrary, readBytes, type LibraryPackage } from './packageStore';
+import { levelsPngDataUrl } from './png';
 import { useRenderWorker } from './render/RenderWorker';
 import type { Settings } from './settings';
-import { Button, Card, colors, describeError, Meter, Note } from './ui';
+import { Button, Card, colors, describeError, Field, Meter, Note } from './ui';
 
 interface Validation {
   ok: boolean;
@@ -26,12 +33,19 @@ interface Validation {
   warnings: string[];
 }
 
-/** One file in an "Add books" run. */
-interface AddItem {
-  name: string;
-  state: 'waiting' | 'working' | 'added' | 'present' | 'failed' | 'skipped';
+/** One file waiting to be added, with the details filled in for it. */
+interface BookRow extends BookDetails {
+  id: number;
+  book: PickedBook;
+  kind: string;
+  state: 'ready' | 'working' | 'added' | 'present' | 'failed' | 'skipped';
   detail?: string;
 }
+
+/** Rows that still need converting: new, or failed or skipped last time. */
+const toConvert = (row: BookRow) => row.state === 'ready' || row.state === 'failed' || row.state === 'skipped';
+
+let nextBookId = 1;
 
 /** One package in a "send to device" run. */
 interface SendItem {
@@ -56,8 +70,8 @@ function stopsTheBatch(error: unknown): boolean {
   return typeof code !== 'string' || STOP_THE_BATCH.has(code);
 }
 
-const ADD_LABELS: Record<AddItem['state'], string> = {
-  waiting: 'Waiting',
+const ADD_LABELS: Record<BookRow['state'], string> = {
+  ready: 'Ready',
   working: 'Working',
   added: 'Added',
   present: 'Already in library',
@@ -109,7 +123,9 @@ export default function Library({ settings }: { settings: Settings }) {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [keepPdfLayout, setKeepPdfLayout] = useState(true);
-  const [adds, setAdds] = useState<AddItem[]>([]);
+  const [books, setBooks] = useState<BookRow[]>([]);
+  const [allAuthor, setAllAuthor] = useState('');
+  const [allLanguage, setAllLanguage] = useState('');
   const [sends, setSends] = useState<SendItem[]>([]);
   const [stopReason, setStopReason] = useState<string | null>(null);
   const cancel = useRef(false);
@@ -150,15 +166,55 @@ export default function Library({ settings }: { settings: Settings }) {
 
   // --- adding books ------------------------------------------------------------
 
-  const setAdd = (index: number, patch: Partial<AddItem>) =>
-    setAdds((previous) => previous.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  const setBook = (id: number, patch: Partial<BookRow>) =>
+    setBooks((previous) => previous.map((row) => (row.id === id ? { ...row, ...patch } : row)));
 
-  const addBooks = () =>
+  const chooseBooks = () =>
+    run('pick', async () => {
+      const picked = await pickBooks();
+      setBooks((previous) => {
+        const listed = new Set(previous.map((row) => row.book.uri));
+        const fresh = picked
+          .filter((book) => !listed.has(book.uri))
+          .map<BookRow>((book) => ({
+            id: nextBookId++,
+            book,
+            kind: bookKind(book.name),
+            title: '',
+            author: allAuthor,
+            language: allLanguage,
+            cover: null,
+            state: 'ready',
+          }));
+        return [...previous, ...fresh];
+      });
+    });
+
+  const fillEveryBook = () =>
+    setBooks((previous) =>
+      previous.map((row) =>
+        row.kind === 'qpk' || !toConvert(row) ? row : { ...row, author: allAuthor, language: allLanguage },
+      ),
+    );
+
+  const chooseCover = (row: BookRow) =>
+    run(`cover:${row.id}`, async () => {
+      const picked = await DocumentPicker.getDocumentAsync({ type: 'image/*', copyToCacheDirectory: true });
+      if (picked.canceled || picked.assets.length === 0) return;
+      const asset = picked.assets[0]!;
+      const bytes = new Uint8Array(await new File(asset.uri).arrayBuffer());
+      const reply = await worker.call<{ levels: string }>(
+        'coverFromPicture',
+        { mediaType: asset.mimeType ?? '' },
+        { bytes: { key: bytes } },
+      );
+      setBook(row.id, { cover: decodeBase64(reply.levels) });
+    });
+
+  const convertBooks = () =>
     run('add', async () => {
-      setAdds([]);
-      const books = await pickBooks();
-      if (books.length === 0) return;
-      setAdds(books.map((book) => ({ name: book.name, state: 'waiting' })));
+      const batch = books.filter(toConvert);
+      if (batch.length === 0) return;
       cancel.current = false;
 
       // Without the current listing, "already in the library" cannot be told.
@@ -166,25 +222,29 @@ export default function Library({ settings }: { settings: Settings }) {
       if (!current) return;
       const known = new Set(current.flatMap((entry) => (entry.identity ? [entry.identity] : [])));
       let added = 0;
-      for (const [index, book] of books.entries()) {
+      for (const row of batch) {
         if (cancel.current) {
-          setAdd(index, { state: 'skipped', detail: 'cancelled' });
+          setBook(row.id, { state: 'skipped', detail: 'cancelled' });
           continue;
         }
-        setAdd(index, { state: 'working', detail: 'starting' });
+        setBook(row.id, { state: 'working', detail: 'starting' });
         try {
-          const result = await addToLibrary(book, worker, known, {
+          const result = await addToLibrary(row.book, worker, known, {
             keepPdfLayout,
-            onStage: (stage) => setAdd(index, { detail: stage }),
+            details: row,
+            onStage: (stage) => setBook(row.id, { detail: stage }),
           });
-          setAdd(index, { state: result.added ? 'added' : 'present', detail: result.added ? result.name : undefined });
+          setBook(row.id, {
+            state: result.added ? 'added' : 'present',
+            detail: result.added ? result.name : 'the same book is already on this phone',
+          });
           if (result.added) added++;
         } catch (caught) {
-          setAdd(index, { state: 'failed', detail: describeError(caught) });
+          setBook(row.id, { state: 'failed', detail: describeError(caught) });
         }
       }
       await refresh();
-      return `Added ${added} of ${books.length} book${books.length === 1 ? '' : 's'}.`;
+      return `Added ${added} of ${batch.length} book${batch.length === 1 ? '' : 's'}.`;
     });
 
   // --- sending to the device ---------------------------------------------------
@@ -309,39 +369,26 @@ export default function Library({ settings }: { settings: Settings }) {
   const sendBytes = sends.reduce((sum, item) => sum + (item.state === 'sent' ? item.total : item.sent), 0);
   const sendTotal = sends.reduce((sum, item) => sum + item.total, 0);
   const sendDone = sends.filter((item) => item.state === 'sent').length;
-  const addDone = adds.filter((item) => item.state !== 'waiting' && item.state !== 'working').length;
+  const pending = books.filter(toConvert);
+  const remaining = books.filter((row) => row.state === 'ready' || row.state === 'working').length;
+  const converting = busy === 'add';
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16 }}>
+    <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
       <Card title="Library on this phone">
         <Note>
           Packages you add here, or convert in the Converter tab, stay on the phone until you delete
           them. Send them to the device, or share one to a computer.
         </Note>
         <Button
-          title={
-            busy !== 'add'
-              ? 'Add books…'
-              : adds.length === 0
-                ? 'Choosing…'
-                : `Adding ${Math.min(addDone + 1, adds.length)} of ${adds.length}…`
-          }
-          onPress={addBooks}
+          title={books.length === 0 ? 'Add books…' : 'Choose more books…'}
+          onPress={chooseBooks}
+          busy={busy === 'pick'}
           disabled={busy !== null || !worker.ready}
         />
-        {busy === 'add' ? (
-          <Button title="Stop after this one" kind="secondary" onPress={() => (cancel.current = true)} />
-        ) : null}
-        <Pressable
-          onPress={() => busy === null && setKeepPdfLayout(!keepPdfLayout)}
-          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
-        >
-          <Text style={{ color: colors.ink, flex: 1 }}>Keep each PDF's page layout (slower)</Text>
-          <Switch value={keepPdfLayout} onValueChange={setKeepPdfLayout} disabled={busy !== null} />
-        </Pressable>
         <Note>
-          Pick as many as you like: PDF, EPUB and TXT are converted, .qpk packages are copied. To set a
-          title or cover for a book, convert it in the Converter tab instead.
+          Choose any number of files, fill in their details, then convert them all at once. PDF, EPUB
+          and TXT are converted; .qpk packages are copied as they are.
         </Note>
         {!worker.ready ? <Note>Starting the converter…</Note> : null}
         {packages ? (
@@ -351,21 +398,108 @@ export default function Library({ settings }: { settings: Settings }) {
         ) : null}
         {error ? <Note tone="danger">{error}</Note> : null}
         {message ? <Note>{message}</Note> : null}
-
-        {adds.map((item, index) => (
-          <View key={`${index}:${item.name}`} style={{ gap: 2 }}>
-            <Text style={{ color: item.state === 'failed' ? colors.danger : colors.ink }} numberOfLines={1}>
-              {ADD_LABELS[item.state]} · {item.name}
-            </Text>
-            {item.detail && item.state !== 'waiting' ? (
-              <Note tone={item.state === 'failed' ? 'danger' : 'muted'}>{item.detail}</Note>
-            ) : null}
-          </View>
-        ))}
-        {adds.length > 0 && busy !== 'add' ? (
-          <Button title="Clear list" kind="secondary" onPress={() => setAdds([])} />
-        ) : null}
       </Card>
+
+      {books.length > 0 ? (
+        <Card title={`Books to add (${books.length})`}>
+          <View style={{ gap: 8, padding: 10, borderRadius: 8, backgroundColor: colors.ground }}>
+            <Text style={{ color: colors.ink, fontWeight: '600' }}>For every book</Text>
+            <Field label="Author" value={allAuthor} onChange={setAllAuthor} />
+            <Field label="Language (e.g. en, ar)" value={allLanguage} onChange={setAllLanguage} />
+            <Button title="Fill in every book" kind="secondary" onPress={fillEveryBook} disabled={busy !== null} />
+          </View>
+
+          {books.map((row) => {
+            const editable = row.kind !== 'qpk' && toConvert(row) && busy === null;
+            return (
+              <View
+                key={row.id}
+                style={{
+                  gap: 8,
+                  paddingVertical: 10,
+                  borderTopWidth: 1,
+                  borderTopColor: colors.line,
+                }}
+              >
+                <Text style={{ color: row.state === 'failed' ? colors.danger : colors.ink, fontWeight: '600' }} numberOfLines={2}>
+                  {ADD_LABELS[row.state]} · {row.book.name}
+                </Text>
+                {row.kind === 'qpk' ? (
+                  <Note>Copied as it is -- a package keeps its own details.</Note>
+                ) : editable ? (
+                  <>
+                    <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+                      {row.cover ? (
+                        <Image
+                          source={{ uri: levelsPngDataUrl(COVER_WIDTH, COVER_HEIGHT, row.cover) }}
+                          style={{ width: 54, height: 72, borderWidth: 1, borderColor: colors.line }}
+                        />
+                      ) : (
+                        <View style={{ width: 54, height: 72, borderWidth: 2, borderColor: colors.ink, alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ fontSize: 9, color: colors.ink, textAlign: 'center' }}>
+                            {row.kind === 'epub' ? "EPUB's own" : 'No cover'}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <Button title="Choose cover…" kind="secondary" onPress={() => chooseCover(row)} busy={busy === `cover:${row.id}`} disabled={busy !== null} />
+                        {row.cover ? (
+                          <Button title="Remove cover" kind="secondary" onPress={() => setBook(row.id, { cover: null })} />
+                        ) : null}
+                      </View>
+                    </View>
+                    <Field
+                      label="Title"
+                      value={row.title}
+                      onChange={(title) => setBook(row.id, { title })}
+                      placeholder="Empty: the document's own, or the file name"
+                    />
+                    <Field label="Author" value={row.author} onChange={(author) => setBook(row.id, { author })} />
+                    <Field label="Language" value={row.language} onChange={(language) => setBook(row.id, { language })} />
+                  </>
+                ) : (
+                  <Note>
+                    {[row.title || null, row.author || null, row.language || null].filter(Boolean).join(' · ') ||
+                      'Details from the document'}
+                  </Note>
+                )}
+                {row.detail && row.state !== 'ready' ? (
+                  <Note tone={row.state === 'failed' ? 'danger' : 'muted'}>{row.detail}</Note>
+                ) : null}
+                {busy === null ? (
+                  <Button
+                    title="Remove from list"
+                    kind="secondary"
+                    onPress={() => setBooks((previous) => previous.filter((other) => other.id !== row.id))}
+                  />
+                ) : null}
+              </View>
+            );
+          })}
+
+          <Pressable
+            onPress={() => busy === null && setKeepPdfLayout(!keepPdfLayout)}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+          >
+            <Text style={{ color: colors.ink, flex: 1 }}>Keep each PDF's page layout (slower)</Text>
+            <Switch value={keepPdfLayout} onValueChange={setKeepPdfLayout} disabled={busy !== null} />
+          </Pressable>
+          <Button
+            title={
+              converting
+                ? `Converting… ${remaining} left`
+                : `Convert & add ${pending.length} book${pending.length === 1 ? '' : 's'}`
+            }
+            onPress={convertBooks}
+            disabled={busy !== null || !worker.ready || pending.length === 0}
+          />
+          {converting ? (
+            <Button title="Stop after this one" kind="secondary" onPress={() => (cancel.current = true)} />
+          ) : (
+            <Button title="Clear list" kind="secondary" onPress={() => setBooks([])} disabled={busy !== null} />
+          )}
+        </Card>
+      ) : null}
 
       {readable.length > 0 ? (
         <Card title="Send to device">

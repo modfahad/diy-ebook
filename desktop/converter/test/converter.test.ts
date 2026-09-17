@@ -631,6 +631,33 @@ test('identity fields are separated, so concatenations cannot collide', () => {
   assert.notEqual(contentIdToHex(a), contentIdToHex(b));
 });
 
+test('an untitled book is titled from its file name, so two of them are two works', async () => {
+  const one = await convert(new TextEncoder().encode('alpha'), { filename: 'C:\\books\\first_book.txt' });
+  const two = await convert(new TextEncoder().encode('beta'), { filename: 'second-book.txt' });
+
+  assert.equal(readPackage(one.bytes).metadata(MetadataKey.Title), 'first book');
+  assert.equal(readPackage(two.bytes).metadata(MetadataKey.Title), 'second-book');
+  assert.notEqual(
+    contentIdToHex(readPackage(one.bytes).header.contentId),
+    contentIdToHex(readPackage(two.bytes).header.contentId),
+    'two untitled books must not share the "Untitled" id',
+  );
+});
+
+test("a title from the caller or the document wins over the file name", async () => {
+  const given = await convert(new TextEncoder().encode('alpha'), { filename: 'file.txt', title: 'Given' });
+  assert.equal(readPackage(given.bytes).metadata(MetadataKey.Title), 'Given');
+
+  const epub = makeEpub({
+    title: 'From The EPUB',
+    author: 'A Writer',
+    language: 'en',
+    chapters: [{ href: 'ch1.xhtml', title: 'One', paragraphs: ['alpha text'] }],
+  });
+  const declared = await convert(epub, { filename: 'something-else.epub' });
+  assert.equal(readPackage(declared.bytes).metadata(MetadataKey.Title), 'From The EPUB');
+});
+
 test('an explicit content id still wins', () => {
   const explicit = new Uint8Array(16).fill(0x5a);
   const { bytes } = buildBookPackage(parseTxt('x'), { title: 'T', contentId: explicit });
