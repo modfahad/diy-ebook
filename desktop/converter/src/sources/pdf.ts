@@ -119,7 +119,10 @@ interface PdfjsModule {
 interface PdfjsDocument {
   numPages: number;
   getPage(n: number): Promise<PdfjsPage>;
-  getMetadata(): Promise<{ info?: Record<string, unknown> }>;
+  getMetadata(): Promise<{
+    info?: Record<string, unknown>;
+    metadata?: { get(name: string): unknown } | null;
+  }>;
   destroy(): Promise<void>;
 }
 
@@ -143,6 +146,48 @@ async function loadPdfjs(): Promise<PdfjsModule> {
     cachedModule = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as PdfjsModule;
   }
   return cachedModule;
+}
+
+/** What a document says about itself: the details a person may want to edit before converting. */
+export interface DocumentDetails {
+  title?: string;
+  author?: string;
+  language?: string;
+}
+
+function metaString(value: unknown): string | undefined {
+  const first = Array.isArray(value) ? value[0] : value;
+  return typeof first === 'string' && first.trim() !== '' ? first.trim() : undefined;
+}
+
+/**
+ * A PDF's title, author and language, without reading a single page: the
+ * Info dictionary first, then the XMP metadata many tools write instead.
+ */
+export async function readPdfDetails(data: Uint8Array): Promise<DocumentDetails> {
+  const pdfjs = await loadPdfjs();
+  // pdf.js may take over the buffer it is given; keep the caller's intact.
+  const doc = await pdfjs.getDocument({ data: data.slice(), isEvalSupported: false, verbosity: 0 }).promise;
+  try {
+    const { info = {}, metadata } = await doc.getMetadata();
+    const xmp = (name: string) => {
+      try {
+        return metaString(metadata?.get(name));
+      } catch {
+        return undefined;
+      }
+    };
+    const details: DocumentDetails = {};
+    const title = metaString(info['Title']) ?? xmp('dc:title');
+    const author = metaString(info['Author']) ?? xmp('dc:creator');
+    const language = metaString(info['Language']) ?? xmp('dc:language');
+    if (title) details.title = title;
+    if (author) details.author = author;
+    if (language) details.language = language;
+    return details;
+  } finally {
+    await doc.destroy();
+  }
 }
 
 export interface PdfParseOptions {

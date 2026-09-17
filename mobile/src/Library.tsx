@@ -38,6 +38,8 @@ interface BookRow extends BookDetails {
   id: number;
   book: PickedBook;
   kind: string;
+  /** True while the file's own title, author and language are being read. */
+  reading: boolean;
   state: 'ready' | 'working' | 'added' | 'present' | 'failed' | 'skipped';
   detail?: string;
 }
@@ -172,22 +174,52 @@ export default function Library({ settings }: { settings: Settings }) {
   const chooseBooks = () =>
     run('pick', async () => {
       const picked = await pickBooks();
-      setBooks((previous) => {
-        const listed = new Set(previous.map((row) => row.book.uri));
-        const fresh = picked
-          .filter((book) => !listed.has(book.uri))
-          .map<BookRow>((book) => ({
+      const listed = new Set(books.map((row) => row.book.uri));
+      const fresh = picked
+        .filter((book) => !listed.has(book.uri))
+        .map<BookRow>((book) => {
+          const kind = bookKind(book.name);
+          return {
             id: nextBookId++,
             book,
-            kind: bookKind(book.name),
+            kind,
             title: '',
             author: allAuthor,
             language: allLanguage,
             cover: null,
+            reading: kind === 'pdf' || kind === 'epub' || kind === 'txt',
             state: 'ready',
-          }));
-        return [...previous, ...fresh];
-      });
+          };
+        });
+      setBooks((previous) => [...previous, ...fresh]);
+
+      // Fill in what each document says about itself, one at a time. Only
+      // fields still empty are filled, so nothing typed meanwhile is lost.
+      for (const row of fresh) {
+        if (!row.reading) continue;
+        try {
+          const found = await worker.call<{ title?: string; author?: string; language?: string }>(
+            'documentDetails',
+            { filename: row.book.name },
+            { bytes: { key: await readBytes(new File(row.book.uri)) } },
+          );
+          setBooks((previous) =>
+            previous.map((other) =>
+              other.id !== row.id
+                ? other
+                : {
+                    ...other,
+                    reading: false,
+                    title: other.title || found.title || '',
+                    author: other.author || found.author || '',
+                    language: other.language || found.language || '',
+                  },
+            ),
+          );
+        } catch (caught) {
+          setBook(row.id, { reading: false, detail: `Could not read its details: ${describeError(caught)}` });
+        }
+      }
     });
 
   const fillEveryBook = () =>
@@ -452,18 +484,20 @@ export default function Library({ settings }: { settings: Settings }) {
                       label="Title"
                       value={row.title}
                       onChange={(title) => setBook(row.id, { title })}
-                      placeholder="Empty: the document's own, or the file name"
+                      placeholder="Title"
                     />
                     <Field label="Author" value={row.author} onChange={(author) => setBook(row.id, { author })} />
                     <Field label="Language" value={row.language} onChange={(language) => setBook(row.id, { language })} />
                   </>
                 ) : (
                   <Note>
-                    {[row.title || null, row.author || null, row.language || null].filter(Boolean).join(' · ') ||
-                      'Details from the document'}
+                    {row.reading
+                      ? 'Reading details…'
+                      : [row.title || null, row.author || null, row.language || null].filter(Boolean).join(' · ') ||
+                        'Details from the document'}
                   </Note>
                 )}
-                {row.detail && row.state !== 'ready' ? (
+                {row.detail ? (
                   <Note tone={row.state === 'failed' ? 'danger' : 'muted'}>{row.detail}</Note>
                 ) : null}
                 {busy === null ? (

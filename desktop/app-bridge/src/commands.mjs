@@ -130,6 +130,18 @@ async function coverSourceCommand(request, ctx) {
   return { mediaType: cover.mediaType, data: Buffer.from(cover.bytes).toString('base64') };
 }
 
+/**
+ * A picked document's title, author and language from its own metadata (the
+ * title falling back to the file name), for the app to show as editable
+ * details before converting. Metadata only: no page is read.
+ */
+async function documentDetailsCommand(request, ctx) {
+  const input = requireString(request, 'input');
+  const converter = await ctx.load('converter');
+  const data = new Uint8Array(await ctx.readFile(input));
+  return converter.readDocumentDetails(data, basename(input));
+}
+
 function defaultOutputPath(input) {
   const directory = dirname(input);
   const name = basename(input).replace(/\.[^.]+$/u, '');
@@ -285,6 +297,7 @@ const COMMANDS = {
   preview: previewCommand,
   coverSource: coverSourceCommand,
   readInput: readInputCommand,
+  documentDetails: documentDetailsCommand,
 
   async 'device.info'(request, ctx) {
     return (await deviceClient(request, ctx)).getInfo();

@@ -23,6 +23,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   describeFailure,
   deviceUpload,
+  documentDetails,
   inspect,
   scanLibrary,
   type DeviceConnection,
@@ -45,6 +46,8 @@ interface BookRow {
   author: string;
   language: string;
   cover: Uint8Array | null;
+  /** True while the file's own title, author and language are being read. */
+  reading: boolean;
   state: "ready" | "working" | "added" | "present" | "failed" | "skipped";
   detail?: string;
 }
@@ -168,22 +171,51 @@ export default function Library({
       filters: [{ name: "Books and packages", extensions: BOOK_EXTENSIONS }],
     });
     const sources = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
-    setBooks((previous) => {
-      const listed = new Set(previous.map((book) => book.source));
-      const fresh = sources
-        .filter((source) => !listed.has(source))
-        .map<BookRow>((source) => ({
+    const listed = new Set(books.map((book) => book.source));
+    const fresh = [...new Set(sources)]
+      .filter((source) => !listed.has(source))
+      .map<BookRow>((source) => {
+        const kind = bookKind(source);
+        return {
           id: nextBookId++,
           source,
-          kind: bookKind(source),
+          kind,
           title: "",
           author: allAuthor,
           language: allLanguage,
           cover: null,
+          reading: kind !== "qpk",
           state: "ready",
-        }));
-      return [...previous, ...fresh];
-    });
+        };
+      });
+    setBooks((previous) => [...previous, ...fresh]);
+
+    // Fill in what each document says about itself, one at a time. Only
+    // fields still empty are filled, so nothing typed meanwhile is lost.
+    for (const book of fresh) {
+      if (!book.reading) continue;
+      try {
+        const found = await documentDetails(book.source);
+        setBooks((previous) =>
+          previous.map((row) =>
+            row.id !== book.id
+              ? row
+              : {
+                  ...row,
+                  reading: false,
+                  title: row.title || found.title || "",
+                  author: row.author || found.author || "",
+                  language: row.language || found.language || "",
+                },
+          ),
+        );
+      } catch (failure) {
+        setBook(book.id, {
+          reading: false,
+          detail: `Could not read its details: ${describeFailure(failure).message}`,
+        });
+      }
+    }
   };
 
   const fillEveryBook = () =>
@@ -324,6 +356,7 @@ export default function Library({
   const current = sends.find((item) => item.state === "sending");
 
   const pending = books.filter(toConvert);
+  const stillReading = books.some((book) => book.reading);
   const remaining = books.filter((book) => book.state === "ready" || book.state === "working").length;
   const finished = books.filter((book) => book.state === "added" || book.state === "present");
 
@@ -479,7 +512,7 @@ export default function Library({
                             className="book-title"
                             value={book.title}
                             onChange={(e) => setBook(book.id, { title: e.currentTarget.value })}
-                            placeholder="Title (empty: the document's own, or the file name)"
+                            placeholder={book.reading ? "Reading details..." : "Title"}
                             disabled={!editable}
                           />
                           <input
@@ -549,7 +582,7 @@ export default function Library({
               <button
                 className="primary"
                 onClick={() => void convertBooks()}
-                disabled={dir === "" || adding || sending || pending.length === 0}
+                disabled={dir === "" || adding || sending || pending.length === 0 || stillReading}
               >
                 {adding
                   ? `Converting... ${remaining} left`

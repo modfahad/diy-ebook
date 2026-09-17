@@ -24,6 +24,7 @@ import {
   convertAndValidate,
   extractEpubCover,
   previewPage,
+  readDocumentDetails,
   validatePackage,
   type ConvertOptions,
 } from '@quran-device/converter';
@@ -281,6 +282,11 @@ const COMMANDS: Record<string, Handler> = {
     if (!cover) return null;
     const rgba = await pictureRgba(cover.bytes, cover.mediaType, COVER_WIDTH, COVER_HEIGHT);
     return { levels: toBase64(ditherToLevels(rgba, COVER_WIDTH, COVER_HEIGHT, { contrast: 0.15 })) };
+  },
+
+  /** A picked document's title, author and language from its metadata alone (the bridge's documentDetails). */
+  async documentDetails(args) {
+    return readDocumentDetails(takeBytes(args.key), String(args.filename ?? ''));
   },
 
   /**

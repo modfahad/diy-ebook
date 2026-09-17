@@ -229,6 +229,19 @@ export function coverSource(input: string): Promise<CoverSource | null> {
   return call<CoverSource | null>({ command: "coverSource", input });
 }
 
+/** What a document says about itself, the title falling back to its file name. */
+export interface DocumentDetails {
+  kind: "txt" | "pdf" | "epub" | "quran-json";
+  title?: string;
+  author?: string;
+  language?: string;
+}
+
+/** A picked document's details from its metadata alone -- quick, no pages read. */
+export function documentDetails(input: string): Promise<DocumentDetails> {
+  return call<DocumentDetails>({ command: "documentDetails", input });
+}
+
 /** An input file's bytes, base64 -- the webview renders PDF pages from them. */
 export function readInputFile(input: string): Promise<{ input: string; bytes: number; data: string }> {
   return call({ command: "readInput", input });

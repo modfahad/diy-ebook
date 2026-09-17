@@ -154,6 +154,14 @@ describe('convert', () => {
   });
 });
 
+describe('document details', () => {
+  it('reads what a picked file will be converted with, before converting it', async () => {
+    const details = await runCommand({ command: 'documentDetails', input: BUSHRA_TXT }, { load });
+    // A TXT says nothing about itself, so the title is the file name's.
+    assert.deepEqual(details, { kind: 'txt', title: 'for-bushra' });
+  });
+});
+
 describe('inspect and preview', () => {
   it('inspects a real QURAN package built by the converter', async () => {
     const result = await runCommand({ command: 'inspect', file: FATIHAH_QPK }, { load });

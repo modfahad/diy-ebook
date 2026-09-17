@@ -25,14 +25,21 @@ function escapeText(text: string): string {
   return text.replace(/([()\\])/gu, '\\$1');
 }
 
-export function makePdf(pages: PdfPageSpec[]): Uint8Array {
+/**
+ * Entries for the trailer's Info dictionary, e.g. { Title: 'A Book' } -- except
+ * `Lang`, which a PDF keeps in its catalog, where real files have it.
+ */
+export type PdfInfo = Record<string, string>;
+
+export function makePdf(pages: PdfPageSpec[], info?: PdfInfo): Uint8Array {
   if (pages.length === 0) throw new Error('a PDF needs at least one page');
 
   const objects: Array<string | { stream: string }> = [];
   const firstPageObject = 4;
   const kids = pages.map((_, i) => `${firstPageObject + i * 2} 0 R`).join(' ');
 
-  objects[1] = '<</Type/Catalog/Pages 2 0 R>>';
+  const lang = info?.['Lang'] ? `/Lang(${escapeText(info['Lang'])})` : '';
+  objects[1] = `<</Type/Catalog/Pages 2 0 R${lang}>>`;
   objects[2] = `<</Type/Pages/Kids[${kids}]/Count ${pages.length}>>`;
   objects[3] = '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>';
 
@@ -53,6 +60,16 @@ export function makePdf(pages: PdfPageSpec[]): Uint8Array {
     };
   });
 
+  let infoRef = '';
+  if (info) {
+    const infoObject = objects.length;
+    objects[infoObject] = `<<${Object.entries(info)
+      .filter(([key]) => key !== 'Lang')
+      .map(([key, value]) => `/${key}(${escapeText(value)})`)
+      .join('')}>>`;
+    infoRef = `/Info ${infoObject} 0 R`;
+  }
+
   let out = '%PDF-1.4\n';
   const offsets: number[] = [];
   for (let n = 1; n < objects.length; n++) {
@@ -72,7 +89,7 @@ export function makePdf(pages: PdfPageSpec[]): Uint8Array {
   for (let n = 1; n < objects.length; n++) {
     out += `${String(offsets[n]).padStart(10, '0')} 00000 n \n`;
   }
-  out += `trailer\n<</Size ${objects.length}/Root 1 0 R>>\nstartxref\n${xrefAt}\n%%EOF\n`;
+  out += `trailer\n<</Size ${objects.length}/Root 1 0 R${infoRef}>>\nstartxref\n${xrefAt}\n%%EOF\n`;
 
   return new TextEncoder().encode(out);
 }

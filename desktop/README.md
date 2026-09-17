@@ -62,7 +62,9 @@ and not a port to the webview.
   (`LIBRARY/{QURAN,BOOKS,TRANSLATIONS,TAFSIR}/*.qpk`), reads each package's
   header and metadata, validates any row on demand, and hands one to the
   Device tab's uploader. "Choose books..." adds many at once: pick the files,
-  set each one's title, author, language and cover (or an author and language
+  and each one's title, author and language are filled in from its own
+  metadata (a PDF's info, an EPUB's OPF; the file name when there is no
+  title). Edit any of them and choose covers (or an author and language
   for all of them), then convert the lot. PDF, EPUB and TXT are converted and
   `.qpk` files are copied, each into the subfolder for its type. Ticked rows are sent to the device in
   one go, one after another.

@@ -11,6 +11,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { unzipSync } from 'fflate';
 
 import type { ParsedDocument } from '../model.js';
+import type { DocumentDetails } from './pdf.js';
 import { DEFAULT_GRID, type Block, type GridOptions, paginateBlocks } from './paginate.js';
 
 type ZipEntries = Map<string, Uint8Array>;
@@ -103,13 +104,26 @@ export interface EpubParseOptions {
   grid?: GridOptions;
 }
 
-export async function parseEpub(
-  data: Uint8Array,
-  options: EpubParseOptions = {},
-): Promise<ParsedDocument> {
-  const entries = await readZip(data);
-  const warnings: string[] = [];
+/**
+ * An EPUB's title, author and language from its OPF alone -- no chapter is
+ * read, so this is quick enough to run as soon as a book is picked.
+ */
+export async function readEpubDetails(data: Uint8Array): Promise<DocumentDetails> {
+  const { pkg } = openPackage(await readZip(data));
+  const meta = pkg.metadata ?? {};
+  const details: DocumentDetails = {};
+  const title = firstString(meta['dc:title'] ?? meta['title']);
+  const author = firstString(meta['dc:creator'] ?? meta['creator']);
+  const language = firstString(meta['dc:language'] ?? meta['language']);
+  if (title) details.title = title;
+  if (author) details.author = author;
+  if (language) details.language = language;
+  return details;
+}
 
+/** The OPF package document an EPUB's container points at, parsed. */
+// The parser's output is untyped XML, read defensively by every caller.
+function openPackage(entries: ZipEntries): { rootPath: string; pkg: any } {
   const containerRaw = entries.get('META-INF/container.xml');
   if (!containerRaw) {
     throw new Error('not an EPUB: META-INF/container.xml is missing');
@@ -120,11 +134,20 @@ export async function parseEpub(
   if (!rootPath) {
     throw new Error('not an EPUB: the container names no OPF root file');
   }
-
   const opfRaw = entries.get(rootPath);
   if (!opfRaw) throw new Error(`EPUB is missing its OPF at ${rootPath}`);
   const opf = xml.parse(utf8.decode(opfRaw));
-  const pkg = opf?.package ?? {};
+  return { rootPath, pkg: opf?.package ?? {} };
+}
+
+export async function parseEpub(
+  data: Uint8Array,
+  options: EpubParseOptions = {},
+): Promise<ParsedDocument> {
+  const entries = await readZip(data);
+  const warnings: string[] = [];
+
+  const { rootPath, pkg } = openPackage(entries);
 
   const meta = pkg.metadata ?? {};
   const title = firstString(meta['dc:title'] ?? meta['title']);

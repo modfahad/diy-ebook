@@ -8,8 +8,8 @@
 // document is Quran or generic book. The user should also be able to manually
 // select the content type."
 
-import { parseEpub } from './sources/epub.js';
-import { parsePdf } from './sources/pdf.js';
+import { parseEpub, readEpubDetails } from './sources/epub.js';
+import { parsePdf, readPdfDetails, type DocumentDetails } from './sources/pdf.js';
 import { parseTxt } from './sources/txt.js';
 import { buildBookPackage, type BookConversionOptions } from './pipeline/book-package.js';
 import { buildQuranPackage, type QuranConversionOptions } from './pipeline/quran-package.js';
@@ -115,6 +115,25 @@ export async function convert(
   const document = fallback ? { ...parsed, title: fallback } : parsed;
   const result = buildBookPackage(document, options);
   return { ...result, document };
+}
+
+/**
+ * The details a picked file will be converted with unless someone changes
+ * them: what the document says about itself, and for the title, the file name
+ * when it says nothing -- exactly what `convert` falls back to. Reads metadata
+ * only (a PDF's info, an EPUB's OPF), never the pages, so it is quick enough
+ * to run as soon as a book is chosen.
+ */
+export async function readDocumentDetails(
+  data: Uint8Array,
+  filename?: string,
+): Promise<DocumentDetails & { kind: InputKind }> {
+  const kind = detectInputKind(data, filename);
+  let details: DocumentDetails = {};
+  if (kind === 'pdf') details = await readPdfDetails(data);
+  else if (kind === 'epub') details = await readEpubDetails(data);
+  const title = details.title ?? titleFromFilename(filename);
+  return { kind, ...details, ...(title ? { title } : {}) };
 }
 
 /**

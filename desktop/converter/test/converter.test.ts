@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { MetadataKey, PackageType, SectionId, readPackage } from '@quran-device/qpk-format';
 
-import { convert, convertAndValidate, detectInputKind } from '../src/convert.js';
+import { convert, convertAndValidate, detectInputKind, readDocumentDetails } from '../src/convert.js';
 import { buildBookPackage } from '../src/pipeline/book-package.js';
 import { contentIdToHex, deriveContentId } from '../src/pipeline/content-id.js';
 import { buildQuranPackage } from '../src/pipeline/quran-package.js';
@@ -656,6 +656,41 @@ test("a title from the caller or the document wins over the file name", async ()
   });
   const declared = await convert(epub, { filename: 'something-else.epub' });
   assert.equal(readPackage(declared.bytes).metadata(MetadataKey.Title), 'From The EPUB');
+});
+
+const onePage = [{ width: 300, height: 400, items: [{ text: 'Hello', x: 20, y: 360, size: 12 }] }];
+
+test("a PDF's details come from its metadata, without reading pages", async () => {
+  const pdf = makePdf(onePage, { Title: 'Riyad as-Salihin', Author: 'An-Nawawi', Lang: 'ar' });
+  const details = await readDocumentDetails(pdf, 'scan_0042.pdf');
+  assert.deepEqual(details, { kind: 'pdf', title: 'Riyad as-Salihin', author: 'An-Nawawi', language: 'ar' });
+  // Reading details must not consume the bytes the conversion needs next.
+  assert.equal(detectInputKind(pdf), 'pdf');
+});
+
+test('a PDF with no metadata is titled from its file name, as convert would title it', async () => {
+  const details = await readDocumentDetails(makePdf(onePage), 'C:\\books\\my_book.pdf');
+  assert.deepEqual(details, { kind: 'pdf', title: 'my book' });
+});
+
+test("an EPUB's details come from its OPF", async () => {
+  const epub = makeEpub({
+    title: 'From The OPF',
+    author: 'A Writer',
+    language: 'en',
+    chapters: [{ href: 'ch1.xhtml', title: 'One', paragraphs: ['alpha text'] }],
+  });
+  assert.deepEqual(await readDocumentDetails(epub, 'x.epub'), {
+    kind: 'epub',
+    title: 'From The OPF',
+    author: 'A Writer',
+    language: 'en',
+  });
+});
+
+test('a TXT has only the title its file name gives it', async () => {
+  const details = await readDocumentDetails(new TextEncoder().encode('Chapter One\n\nbody'), 'notes.txt');
+  assert.deepEqual(details, { kind: 'txt', title: 'notes' });
 });
 
 test('an explicit content id still wins', () => {
