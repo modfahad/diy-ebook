@@ -14,7 +14,7 @@
 
 use serde::Serialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const MAGIC: [u8; 4] = [0x51, 0x50, 0x4b, 0x31]; // "QPK1"
 const HEADER_SIZE: usize = 64;
@@ -248,6 +248,112 @@ pub fn scan_library(dir: String) -> Result<Vec<PackageSummary>, String> {
     Ok(candidates.iter().map(|p| summarise_file(p)).collect())
 }
 
+/// Content id and version from the header alone -- enough to tell whether two
+/// files are the same package without reading either one whole.
+fn header_identity(path: &Path) -> Option<(String, u32)> {
+    use std::io::Read;
+    let mut header = [0u8; HEADER_SIZE];
+    fs::File::open(path).ok()?.read_exact(&mut header).ok()?;
+    if header[0..4] != MAGIC {
+        return None;
+    }
+    let content_id: String = header[24..40].iter().map(|b| format!("{b:02x}")).collect();
+    Some((content_id, read_u32(&header, 40)))
+}
+
+/// The library subfolder a package type belongs in, as the card lays it out.
+fn type_folder(package_type: &str) -> &'static str {
+    match package_type {
+        "QURAN" => "QURAN",
+        "TRANSLATION" => "TRANSLATIONS",
+        "TAFSIR" => "TAFSIR",
+        _ => "BOOKS",
+    }
+}
+
+/// `stem` made safe as a file name, much as mobile/src/packageStore.ts does
+/// it -- though letters in any script are kept, so an Arabic title stays one.
+fn safe_stem(stem: &str) -> String {
+    let mut out = String::with_capacity(stem.len());
+    let mut in_run = false;
+    for c in stem.chars() {
+        if c.is_alphanumeric() || c == '_' || c == '.' || c == '-' {
+            out.push(c);
+            in_run = false;
+        } else if !in_run {
+            out.push('_');
+            in_run = true;
+        }
+    }
+    // No leading dot: that would be a hidden file.
+    let trimmed = out.trim_matches(|c: char| c == '_' || c == '.');
+    if trimmed.is_empty() { "package".to_string() } else { trimmed.to_string() }
+}
+
+/// `folder/stem.qpk`, or `stem-2.qpk` and so on -- never a file that exists.
+fn free_path(folder: &Path, stem: &str) -> PathBuf {
+    let stem = safe_stem(stem);
+    let mut candidate = folder.join(format!("{stem}.qpk"));
+    let mut n = 2;
+    while candidate.exists() {
+        candidate = folder.join(format!("{stem}-{n}.qpk"));
+        n += 1;
+    }
+    candidate
+}
+
+fn library_folder(dir: &str, package_type: &str) -> Result<PathBuf, String> {
+    let root = Path::new(dir);
+    if !root.is_dir() {
+        return Err(format!("{dir} is not a directory"));
+    }
+    let folder = root.join(type_folder(package_type));
+    fs::create_dir_all(&folder).map_err(|e| format!("could not create {}: {e}", folder.display()))?;
+    Ok(folder)
+}
+
+/// Where a package about to be converted should be written: a free name in the
+/// library folder for its type. The converter writes it; this only picks.
+#[tauri::command]
+pub fn library_output_path(dir: String, package_type: String, stem: String) -> Result<String, String> {
+    let folder = library_folder(&dir, &package_type)?;
+    Ok(free_path(&folder, &stem).to_string_lossy().to_string())
+}
+
+#[derive(Serialize)]
+pub struct ImportResult {
+    /// Where the package now is in the library.
+    path: String,
+    /// False when an identical package (same content id and version) was
+    /// already there, so nothing was copied.
+    copied: bool,
+}
+
+/// Copies an existing `.qpk` into the library folder for its type. The header
+/// is read first, so a file that is not a package is refused rather than
+/// copied, and a package already in the library is not copied a second time.
+#[tauri::command]
+pub fn import_package(src: String, dir: String) -> Result<ImportResult, String> {
+    let source = Path::new(&src);
+    let bytes = fs::read(source).map_err(|e| format!("could not read {src}: {e}"))?;
+    let summary = parse(&bytes)?;
+
+    let identity = (summary.content_id.clone(), summary.content_version);
+    let mut existing = Vec::new();
+    collect_qpk_files(Path::new(&dir), 0, &mut existing)?;
+    for path in existing {
+        if header_identity(&path).as_ref() == Some(&identity) {
+            return Ok(ImportResult { path: path.to_string_lossy().to_string(), copied: false });
+        }
+    }
+
+    let folder = library_folder(&dir, &summary.package_type)?;
+    let stem = source.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let target = free_path(&folder, &stem);
+    fs::write(&target, &bytes).map_err(|e| format!("could not write {}: {e}", target.display()))?;
+    Ok(ImportResult { path: target.to_string_lossy().to_string(), copied: true })
+}
+
 fn collect_qpk_files(dir: &Path, depth: u8, out: &mut Vec<std::path::PathBuf>) -> Result<(), String> {
     let entries = fs::read_dir(dir).map_err(|e| format!("could not read {}: {e}", dir.display()))?;
     for entry in entries {
@@ -316,6 +422,55 @@ mod tests {
         let summary = summarise_file(&examples_dir().join("../for-bushra.txt"));
         assert!(summary.error.is_some());
         assert_eq!(summary.package_type, "UNKNOWN");
+    }
+
+    fn empty_library(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("qd-library-test-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn importing_files_a_package_under_its_type_and_skips_a_second_copy() {
+        let dir = empty_library("import");
+        let lib = dir.to_string_lossy().to_string();
+        let quran = examples_dir().join("al-fatihah.qpk").to_string_lossy().to_string();
+        let translation = examples_dir().join("al-fatihah-en.qpk").to_string_lossy().to_string();
+
+        let first = import_package(quran.clone(), lib.clone()).unwrap();
+        assert!(first.copied);
+        assert_eq!(PathBuf::from(&first.path), dir.join("QURAN").join("al-fatihah.qpk"));
+
+        let again = import_package(quran, lib.clone()).unwrap();
+        assert!(!again.copied, "the same package must not be copied twice");
+        assert_eq!(again.path, first.path);
+
+        let other = import_package(translation, lib.clone()).unwrap();
+        assert_eq!(PathBuf::from(&other.path), dir.join("TRANSLATIONS").join("al-fatihah-en.qpk"));
+
+        assert_eq!(scan_library(lib).unwrap().len(), 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn importing_a_file_that_is_not_a_package_is_refused() {
+        let dir = empty_library("refuse");
+        let text = examples_dir().join("../for-bushra.txt").to_string_lossy().to_string();
+        assert!(import_package(text, dir.to_string_lossy().to_string()).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn output_paths_never_name_an_existing_file() {
+        let dir = empty_library("output");
+        let lib = dir.to_string_lossy().to_string();
+        let first = library_output_path(lib.clone(), "BOOK".into(), "My Book: Vol 1".into()).unwrap();
+        assert_eq!(PathBuf::from(&first), dir.join("BOOKS").join("My_Book_Vol_1.qpk"));
+        fs::write(&first, b"x").unwrap();
+        let second = library_output_path(lib, "BOOK".into(), "My Book: Vol 1".into()).unwrap();
+        assert_eq!(PathBuf::from(&second), dir.join("BOOKS").join("My_Book_Vol_1-2.qpk"));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

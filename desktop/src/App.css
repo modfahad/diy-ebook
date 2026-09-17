@@ -550,6 +550,23 @@ tbody tr:hover {
   color: var(--bad);
 }
 
+/* The tick column for choosing several packages at once. */
+th.pick,
+td.pick {
+  width: 1.75rem;
+  vertical-align: middle;
+}
+
+.pick input {
+  width: auto;
+  cursor: pointer;
+}
+
+.row-picked,
+tbody tr.row-picked:hover {
+  background: var(--good-bg);
+}
+
 /* A size or a count must never wrap mid-value ("6.1 / KB"). */
 td.nowrap {
   white-space: nowrap;

@@ -61,7 +61,10 @@ and not a port to the webview.
 - **Library** -- scans a folder laid out like the device's card
   (`LIBRARY/{QURAN,BOOKS,TRANSLATIONS,TAFSIR}/*.qpk`), reads each package's
   header and metadata, validates any row on demand, and hands one to the
-  Device tab's uploader.
+  Device tab's uploader. "Choose books..." adds many at once: PDF, EPUB and
+  TXT are converted with the Converter's defaults and `.qpk` files are copied,
+  each into the subfolder for its type. Ticked rows are sent to the device in
+  one go, one after another.
 - **Device** -- identity, status, installed content, resumable upload with
   progress, delete, and abandoning an interrupted upload.
 - **Converter** -- the full pipeline with every option the CLI exposes:

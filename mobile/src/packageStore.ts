@@ -3,7 +3,6 @@
 // Converter tab. Reading a package's header, title and cover is plain
 // qpk-format in the app; full validation goes to the render worker.
 
-import * as DocumentPicker from 'expo-document-picker';
 import { Directory, File, Paths } from 'expo-file-system';
 
 import {
@@ -30,7 +29,24 @@ export interface LibraryPackage {
   pageCount?: number;
   /** PNG data URL of the COVER section, when the package has one. */
   cover?: string;
+  /** Content id and version (packageIdentity), for spotting the same package twice. */
+  identity?: string;
   error?: string;
+}
+
+/**
+ * A package's content id and version, read straight from the 64-byte header
+ * (docs/qpk-format.md 4); null when the bytes are not a QPK1 package. Two files
+ * with the same identity are the same package.
+ */
+export function packageIdentity(bytes: Uint8Array): string | null {
+  if (bytes.length < 64 || bytes[0] !== 0x51 || bytes[1] !== 0x50 || bytes[2] !== 0x4b || bytes[3] !== 0x31) {
+    return null;
+  }
+  let id = '';
+  for (const byte of bytes.subarray(24, 40)) id += byte.toString(16).padStart(2, '0');
+  const version = new DataView(bytes.buffer, bytes.byteOffset + 40, 4).getUint32(0, true);
+  return `${id}@${version}`;
 }
 
 const TYPE_NAMES: Record<number, string> = {
@@ -53,6 +69,8 @@ export async function readBytes(file: File): Promise<Uint8Array> {
 /** Header, metadata and cover -- no checksum sweep, so a list stays quick. */
 export function describePackage(file: File, bytes: Uint8Array): LibraryPackage {
   const entry: LibraryPackage = { file, name: file.name, size: bytes.length };
+  const identity = packageIdentity(bytes);
+  if (identity) entry.identity = identity;
   try {
     const pkg = readPackage(bytes, { verifyChecksums: false });
     entry.type = TYPE_NAMES[pkg.header.packageType] ?? `type ${pkg.header.packageType}`;
@@ -103,17 +121,4 @@ export function saveToLibrary(bytes: Uint8Array, wantedName: string): File {
   file.create();
   file.write(bytes);
   return file;
-}
-
-/** Copies packages the user picks into the library; returns how many. */
-export async function addFromPicker(): Promise<number> {
-  const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
-  if (result.canceled) return 0;
-  let added = 0;
-  for (const asset of result.assets) {
-    const bytes = await readBytes(new File(asset.uri));
-    saveToLibrary(bytes, asset.name);
-    added++;
-  }
-  return added;
 }

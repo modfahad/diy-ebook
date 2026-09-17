@@ -66,7 +66,12 @@ through `expo-file-system`'s `File.arrayBuffer()`.
 6. **Library tab** -- open packages, validate, covers. *(done, type-checked
    and bundled; not yet run)* Packages live in the app's documents folder
    (`library/`): added from the file picker or saved by the Converter; each
-   can be validated, sent to the device, shared, or deleted.
+   can be validated, sent to the device, shared, or deleted. "Add books…"
+   takes many files at once -- PDF, EPUB and TXT converted in the render
+   worker, `.qpk` copied, a package already present skipped -- and ticked
+   packages are sent to the device together, one after another.
+   *(app code type-checked; the render worker's side is not, and none of it
+   has run yet)*
 7. **Converter tab** -- TXT and EPUB first (pure JS), then PDF through the
    render worker (text and page pictures), covers. *(done, type-checked and
    bundled; not yet run)* In the end all three formats go through the render

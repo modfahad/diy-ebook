@@ -372,3 +372,23 @@ export interface PackageSummaryRow {
 export function scanLibrary(dir: string): Promise<PackageSummaryRow[]> {
   return invoke<PackageSummaryRow[]>("scan_library", { dir });
 }
+
+export interface ImportResult {
+  path: string;
+  /** False when the same package (content id and version) was already in the library. */
+  copied: boolean;
+}
+
+/** Copies a finished .qpk into the library folder for its type. */
+export function importPackage(src: string, dir: string): Promise<ImportResult> {
+  return invoke<ImportResult>("import_package", { src, dir });
+}
+
+/** A not-yet-existing path in the library folder for a package of this type. */
+export function libraryOutputPath(
+  dir: string,
+  packageType: "BOOK" | "QURAN",
+  stem: string,
+): Promise<string> {
+  return invoke<string>("library_output_path", { dir, packageType, stem });
+}

@@ -8,6 +8,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             library::scan_library,
+            library::import_package,
+            library::library_output_path,
             bridge::bridge_call,
             bridge::bridge_environment,
         ])
