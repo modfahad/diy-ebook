@@ -40,6 +40,9 @@ interface BookRow extends BookDetails {
   kind: string;
   /** True while the file's own title, author and language are being read. */
   reading: boolean;
+  /** The file names no title of its own; `fileTitle` is what it gets unless one is typed. */
+  untitled?: boolean;
+  fileTitle?: string;
   state: 'ready' | 'working' | 'added' | 'present' | 'failed' | 'skipped';
   detail?: string;
 }
@@ -198,7 +201,7 @@ export default function Library({ settings }: { settings: Settings }) {
       for (const row of fresh) {
         if (!row.reading) continue;
         try {
-          const found = await worker.call<{ title?: string; author?: string; language?: string }>(
+          const found = await worker.call<{ title?: string; author?: string; language?: string; untitled?: boolean }>(
             'documentDetails',
             { filename: row.book.name },
             { bytes: { key: await readBytes(new File(row.book.uri)) } },
@@ -210,7 +213,11 @@ export default function Library({ settings }: { settings: Settings }) {
                 : {
                     ...other,
                     reading: false,
-                    title: other.title || found.title || '',
+                    // A title made from the file name is not filled in, so the
+                    // empty field asks for a real one.
+                    title: other.title || (found.untitled ? '' : found.title || ''),
+                    untitled: found.untitled === true,
+                    fileTitle: found.title,
                     author: other.author || found.author || '',
                     language: other.language || found.language || '',
                   },
@@ -469,7 +476,7 @@ export default function Library({ settings }: { settings: Settings }) {
                       ) : (
                         <View style={{ width: 54, height: 72, borderWidth: 2, borderColor: colors.ink, alignItems: 'center', justifyContent: 'center' }}>
                           <Text style={{ fontSize: 9, color: colors.ink, textAlign: 'center' }}>
-                            {row.kind === 'epub' ? "EPUB's own" : 'No cover'}
+                            {row.kind === 'epub' ? "EPUB's own, or the title" : 'Title on the cover'}
                           </Text>
                         </View>
                       )}
@@ -484,8 +491,14 @@ export default function Library({ settings }: { settings: Settings }) {
                       label="Title"
                       value={row.title}
                       onChange={(title) => setBook(row.id, { title })}
-                      placeholder="Title"
+                      placeholder={row.untitled && row.fileTitle ? row.fileTitle : 'Title'}
                     />
+                    {row.untitled && !row.title.trim() ? (
+                      <Note>
+                        This file has no title of its own. Type one -- it is also written on the cover. Left empty, the
+                        book is called "{row.fileTitle ?? row.book.name}".
+                      </Note>
+                    ) : null}
                     <Field label="Author" value={row.author} onChange={(author) => setBook(row.id, { author })} />
                     <Field label="Language" value={row.language} onChange={(language) => setBook(row.id, { language })} />
                   </>

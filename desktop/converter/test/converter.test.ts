@@ -670,7 +670,7 @@ test("a PDF's details come from its metadata, without reading pages", async () =
 
 test('a PDF with no metadata is titled from its file name, as convert would title it', async () => {
   const details = await readDocumentDetails(makePdf(onePage), 'C:\\books\\my_book.pdf');
-  assert.deepEqual(details, { kind: 'pdf', title: 'my book' });
+  assert.deepEqual(details, { kind: 'pdf', title: 'my book', untitled: true });
 });
 
 test("an EPUB's details come from its OPF", async () => {
@@ -690,7 +690,7 @@ test("an EPUB's details come from its OPF", async () => {
 
 test('a TXT has only the title its file name gives it', async () => {
   const details = await readDocumentDetails(new TextEncoder().encode('Chapter One\n\nbody'), 'notes.txt');
-  assert.deepEqual(details, { kind: 'txt', title: 'notes' });
+  assert.deepEqual(details, { kind: 'txt', title: 'notes', untitled: true });
 });
 
 test('an explicit content id still wins', () => {

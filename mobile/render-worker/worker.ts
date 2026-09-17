@@ -156,6 +156,98 @@ async function pictureRgba(
   }
 }
 
+// --- title covers ------------------------------------------------------------------
+//
+// A book with no cover picture gets one drawn from its title: black type on
+// white inside a thin frame, set as large as fits. Drawn at the cover's own
+// 108x144 and mapped to the four greys without dithering, so the type stays
+// sharp instead of turning to speckle.
+
+const ARABIC = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/u;
+const FRAME = 4;
+const TEXT_LEFT = 12;
+const TEXT_TOP = 14;
+
+/** Lines of `title` no wider than `width`; false when a piece had to be split mid-word. */
+function wrapTitle(context: CanvasRenderingContext2D, title: string, width: number): { lines: string[]; whole: boolean } {
+  const lines: string[] = [];
+  let line = '';
+  let whole = true;
+  const fits = (text: string) => context.measureText(text).width <= width;
+  const add = (piece: string, spaced: boolean) => {
+    const candidate = line === '' ? piece : `${line}${spaced ? ' ' : ''}${piece}`;
+    if (fits(candidate)) {
+      line = candidate;
+      return;
+    }
+    if (line !== '') lines.push(line);
+    line = '';
+    if (fits(piece)) {
+      line = piece;
+      return;
+    }
+    whole = false;
+    for (const char of piece) {
+      if (line !== '' && !fits(line + char)) {
+        lines.push(line);
+        line = '';
+      }
+      line += char;
+    }
+  };
+  for (const word of title.trim().split(/\s+/u)) {
+    // A file-name title like "11-SurahHud-Linguisticmiracle" may break after a hyphen.
+    (word.match(/[^-]+-*|-+/gu) ?? [word]).forEach((piece, index) => add(piece, index === 0));
+  }
+  if (line !== '') lines.push(line);
+  return { lines, whole };
+}
+
+function titleCoverLevels(title: string): Uint8Array {
+  const W = COVER_WIDTH;
+  const H = COVER_HEIGHT;
+  const [, context] = canvas2d(W, H);
+  context.strokeStyle = '#000';
+  context.lineWidth = 1;
+  context.strokeRect(FRAME + 0.5, FRAME + 0.5, W - 2 * FRAME - 1, H - 2 * FRAME - 1);
+
+  const arabic = ARABIC.test(title);
+  const family = arabic ? "'Noto Naskh Arabic', 'Noto Sans Arabic', serif" : "'Noto Serif', Georgia, serif";
+  const boxWidth = W - 2 * TEXT_LEFT;
+  const boxHeight = H - 2 * TEXT_TOP;
+  const spacing = arabic ? 1.45 : 1.2;
+
+  // The largest size that fits: first without splitting a word, then allowing it.
+  let chosen: { size: number; lines: string[] } | null = null;
+  for (const allowSplit of [false, true]) {
+    for (let size = 30; size >= 9 && !chosen; size--) {
+      context.font = `700 ${size}px ${family}`;
+      const { lines, whole } = wrapTitle(context, title, boxWidth);
+      if ((whole || allowSplit) && lines.length * size * spacing <= boxHeight) chosen = { size, lines };
+    }
+    if (chosen) break;
+  }
+  if (!chosen) {
+    context.font = `700 9px ${family}`;
+    const most = Math.max(1, Math.floor(boxHeight / (9 * spacing)));
+    const { lines } = wrapTitle(context, title, boxWidth);
+    chosen = { size: 9, lines: lines.length > most ? [...lines.slice(0, most - 1), `${lines[most - 1]}…`] : lines };
+  }
+
+  context.font = `700 ${chosen.size}px ${family}`;
+  context.fillStyle = '#000';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.direction = arabic ? 'rtl' : 'ltr';
+  const lineHeight = chosen.size * spacing;
+  const top = TEXT_TOP + (boxHeight - chosen.lines.length * lineHeight) / 2;
+  chosen.lines.forEach((text, index) => {
+    context.fillText(text, W / 2, Math.round(top + (index + 0.5) * lineHeight));
+  });
+  const rgba = context.getImageData(0, 0, W, H).data;
+  return ditherToLevels(rgba, W, H, { contrast: 0, dither: false });
+}
+
 // --- PDF page pictures (mirrors desktop/src/pdfPages.ts) ---------------------------
 
 type PdfDocument = Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>;
@@ -276,6 +368,13 @@ const COMMANDS: Record<string, Handler> = {
     return { levels: toBase64(levels) };
   },
 
+  /** A cover drawn from a title, as cover levels (108x144, four greys). */
+  async coverFromTitle(args) {
+    const title = String(args.title ?? '').trim();
+    if (!title) throw new Error('a title is required');
+    return { levels: toBase64(titleCoverLevels(title)) };
+  },
+
   /** The cover an EPUB declares, as cover levels; null when it has none. */
   async epubCover(args) {
     const cover = await extractEpubCover(takeBytes(args.key));
@@ -300,6 +399,11 @@ const COMMANDS: Record<string, Handler> = {
     const convertOptions: ConvertOptions = { ...options };
     if (typeof options.cover === 'string') {
       convertOptions.cover = encodeCover(fromBase64(options.cover as unknown as string));
+    } else if (args.titleCover === true) {
+      // No cover picture: draw the title the book will carry.
+      const details = await readDocumentDetails(data, String(options.filename ?? ''));
+      const title = (typeof options.title === 'string' && options.title.trim()) || details.title;
+      if (title && details.kind !== 'quran-json') convertOptions.cover = encodeCover(titleCoverLevels(title));
     }
     if (args.keepLayout === true && isPdf(data)) {
       const pages = await renderPdfPages(data, args.trimMargins !== false, (done, total) =>

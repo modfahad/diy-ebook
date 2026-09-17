@@ -278,6 +278,15 @@ not yet run on Android):
 - Converter: a TXT, an EPUB (cover picked up automatically) and a PDF with
   "keep layout" (page pictures, progress, preview page turns); Save to
   library, Send to device, Share. A big PDF is the memory test.
+- Converter, many at once (added after `ec8fe92`, needs a new EAS build):
+  "Choose files…" with several PDFs and EPUBs, set author/language and the
+  switches, "Convert N books"; each lands in the Library tab, a failed one can
+  be run again, and choosing a single file still shows the preview.
+- Title covers and untitled books (same build): a PDF or TXT with no title
+  metadata shows an empty Title field asking for one, in the Converter (one
+  or many) and in Library "Add books…"; with no cover picture the package's
+  cover is the title in type (the Converter shows it before converting).
+  Check an Arabic title on the device's library screen.
 
 ## 1. Blocked on materials
 
