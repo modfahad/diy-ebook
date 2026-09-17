@@ -25,6 +25,12 @@ console.log(result.report);          // pages, chapters, words, estimated fracti
 console.log(previewPage(result.bytes, 1));
 ```
 
+To show a document's details before converting it -- as the apps do when
+books are picked -- `readDocumentDetails(bytes, filename)` reads metadata only
+(a PDF's Info dictionary, XMP and `/Lang`; an EPUB's OPF) and returns
+`{ kind, title, author, language }`. When a document names no title, both it
+and `convert` use the file name, so the two always agree.
+
 ## The one rule worth knowing up front
 
 **Quran packages are only built from a structured JSON source**, never from a

@@ -66,14 +66,22 @@ through `expo-file-system`'s `File.arrayBuffer()`.
 6. **Library tab** -- open packages, validate, covers. *(done, type-checked
    and bundled; not yet run)* Packages live in the app's documents folder
    (`library/`): added from the file picker or saved by the Converter; each
-   can be validated, sent to the device, shared, or deleted. "Add books…"
-   takes many files at once: each book's title, author and language are
-   read from its own metadata and can be edited, with a cover per book (or an author and language for all), then convert them together --
-   PDF, EPUB and TXT in the render worker, `.qpk` copied, a package already
-   present skipped. Ticked
-   packages are sent to the device together, one after another.
-   *(app code type-checked; the render worker's side is not, and none of it
-   has run yet)*
+   can be validated, sent to the device, shared, or deleted.
+   **Many at once** *(2026-09-17: type-checked and in the EAS preview APK
+   built from `ec8fe92`; not yet run on a phone)*:
+   - "Add books…" takes any number of files. Each book's title, author and
+     language are read from its own metadata by the render worker
+     (`documentDetails`) and filled in, still editable; a cover can be
+     chosen per book, and "For every book" sets an author and language for
+     all. "Convert & add" then converts PDF, EPUB and TXT one after another
+     and copies `.qpk` files. A package whose content id and version are
+     already on the phone is not saved again -- which, since the id comes
+     from title, author and language, also catches converting the same book
+     twice.
+   - Ticked packages are sent to the device one after another, never in
+     parallel. No answer over Wi-Fi, or unpaired / not in transfer mode /
+     card full, stops the batch once; a package the phone cannot read fails
+     only itself.
 7. **Converter tab** -- TXT and EPUB first (pure JS), then PDF through the
    render worker (text and page pictures), covers. *(done, type-checked and
    bundled; not yet run)* In the end all three formats go through the render
@@ -89,8 +97,12 @@ through `expo-file-system`'s `File.arrayBuffer()`.
 it once in a hidden `react-native-webview` (`src/render/RenderWorker.tsx`)
 and calls it with `worker.call(command, args, { bytes, onProgress })`.
 Commands: `photoRgba` (decode + 400x480 crop), `coverFromPicture`,
-`epubCover`, `convert` (with PDF page pictures when `keepLayout`), `preview`,
-`validate`. Bytes travel as base64 in 512 KB pieces both ways; the last
+`epubCover`, `documentDetails` (title, author and language from metadata,
+for the Library's batch form), `convert` (with PDF page pictures when
+`keepLayout`), `preview`, `validate`. `tsc` does not check this file
+(`mobile/tsconfig.json` excludes `render-worker`), and the generated page is
+not committed: rerun `npm run worker` after changing it or the converter, or
+the app keeps calling the old one. Bytes travel as base64 in 512 KB pieces both ways; the last
 converted package stays in the page so preview page turns do not resend it.
 pdf.js's worker runs on the page's own thread, as in the desktop's standalone
 bridge. The app itself dithers photos (`convertPhoto`) and draws every preview
@@ -112,4 +124,15 @@ npx expo run:android --device
 ```
 
 Or build in Expo's cloud instead (needs a free Expo account, `npx eas login`
-run by you): `npx eas build --platform android --profile preview`.
+run by you): `npx eas build --platform android --profile preview`. The
+`preview` profile makes an installable APK; `eas-build-post-install` builds
+the shared libraries and the render worker on Expo's machine, so a cloud
+build never uses a stale local worker. The build page's link or QR code
+installs it on a phone.
+
+**On the Windows PC, build in the cloud.** Smart App Control is on there, and
+a local release build stops at `createBundleReleaseJsAndAssets`: Windows
+blocks `hermesc.exe` (unsigned), which every React Native release build needs.
+EAS builds under the `modfahad` account have worked from that PC
+(2026-09-17). Downloaded APKs are kept in `mobile/builds/`, which is
+git-ignored.

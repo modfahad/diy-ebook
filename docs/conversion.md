@@ -190,6 +190,26 @@ A document where neither signal fires is **not** an error. It becomes a
 single-chapter package with a warning, because a book with no detectable
 headings still has to install and read.
 
+## 4a. Titles, and why a book always has one
+
+A book's content id is derived from its type, title, author and language
+(`pipeline/content-id.ts`) -- deliberately not from its text, so a corrected
+re-conversion updates the installed copy instead of sitting beside it.
+
+That makes the title load-bearing. A PDF or TXT that names no title used to
+become `Untitled`, and every such book then shared one content id: the second
+replaced the first on the device, and the Android library skipped it as
+already present. So `convert` now titles a book from its file name when
+neither the caller nor the document gives one (`titleFromFilename`:
+`my_book.pdf` becomes `my book`). An explicit title, or one the document
+declares, still wins.
+
+`readDocumentDetails` gives the apps the same answer before converting:
+title, author and language from metadata alone -- a PDF's Info dictionary,
+then its XMP (`dc:title`, `dc:creator`), and the catalog's `/Lang`; an EPUB's
+OPF -- with the same file-name fallback. It never reads a page, which is what
+makes it cheap enough to run for every book as soon as it is picked.
+
 ## 5. Validation and preview happen before install
 
 `validatePackage()` runs two profiles:

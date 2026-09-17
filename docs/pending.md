@@ -164,28 +164,40 @@ reader. Nothing is broken by the delay.
 
 ## 0. To do on the Windows PC (added 2026-09-14)
 
-The Windows desktop build and the Android app, both done by you on the
-Windows PC. The code for both is written and committed (`a76f30b`); neither has
-been built on Windows or run on a phone yet.
+**Where this stands, 2026-09-17:** the repository is on the PC and on GitHub
+(`modfahad/diy-ebook`). Windows and macOS installers and an Android APK are
+all *built* -- the installers by GitHub Actions, the APK by EAS -- from
+`ec8fe92`, which includes adding and converting many books at once and
+sending many to the device (desktop/README.md, android.md). **None of the
+three has been run yet.** What is left is installing them and the checks
+below.
 
-### Get the repository onto the PC
+**Smart App Control is on on this PC**, and it blocks every unsigned native
+binary a local build needs: `rustc`, Tauri's CLI, Rollup's native module and
+`hermesc.exe`. So neither app builds or runs from source here; build in CI
+(desktop) and EAS (Android). Turning it off is a Windows Security setting that
+cannot be turned back on without resetting Windows. It may also block the
+unsigned installers themselves.
 
-The repository exists only on the Mac so far. Either push it to GitHub from the
-Mac and `git clone` it on the PC, or copy the folder across (leave out every
-`node_modules/`, `firmware/.pio/` and `desktop/src-tauri/target/`).
+**Security:** the git remote URL on this PC embeds a GitHub personal access
+token. Revoke it on GitHub and `git remote set-url origin
+https://github.com/modfahad/diy-ebook.git`.
+
+Before the repository goes anywhere more public, decide whether the ~20 MB of
+built Quran `.qpk` files (`sdcard-staging/`, `desktop/converter/examples/`)
+stay in it (docs/quran-content.md: the text is not redistributed from it).
 `firmware/include/app/dev_secrets.h` is not in git: copy
-`dev_secrets.example.h` and fill it in on the PC only if you build firmware
-there. Before pushing anywhere public, decide whether the ~20 MB of built
-Quran `.qpk` files (`sdcard-staging/`, `desktop/converter/examples/`) stay in
-the repository (docs/quran-content.md: the text is not redistributed from it).
+`dev_secrets.example.h` and fill it in only where firmware is built.
 
 ### Windows desktop app
 
 Either way below produces an `.msi` and an NSIS `.exe` installer.
 
-- **GitHub Actions (no setup):** push to GitHub; `.github/workflows/desktop.yml`
-  builds macOS and Windows and attaches the installers to the run as artifacts.
-- **Locally on the PC:**
+- **GitHub Actions (no setup):** every push to `main` runs
+  `.github/workflows/desktop.yml`, which tests the libraries, the bridge and
+  the Rust side, builds macOS and Windows, and attaches the installers to the
+  run as artifacts. Green for `b124d8b`, `fac43d0` and `ec8fe92`.
+- **Locally on a PC without Smart App Control:**
   1. Install Node.js 20, Rust (rustup, MSVC toolchain) with the Visual Studio
      C++ Build Tools, and Git. WebView2 is already part of Windows 10/11.
   2. In `packages\qpk-format`, `packages\protocol`, `desktop\converter`,
@@ -204,12 +216,25 @@ To check on Windows:
 - the Browse buttons, a TXT/EPUB/PDF conversion and a photo preview
 - finding the device on the LAN and an upload, which needs the board in
   transfer mode (Windows Firewall may prompt)
+- Library, many at once: pick several PDFs and EPUBs and see their titles,
+  authors and languages fill in from their metadata; edit one, choose a
+  cover, set "For every book", then "Convert & add" -- each lands under
+  `BOOKS/`, a `.qpk` under its type's folder, and a failed book can be run
+  again
+- tick several packages and "Send N to device": one after another, with the
+  batch stopping once (not per book) if the device is not in transfer mode
 
 ### Android app (`mobile/`)
 
 Plan, milestones and details: [android.md](android.md).
 
-**Set up and run on the phone:**
+**Install the built APK:** open the EAS build page on the phone (or copy the
+APK from `mobile/builds/`) and install it; uninstall an older copy first if
+Android refuses. New builds: `npx eas build --platform android --profile
+preview` in `mobile` -- on this PC the only way, since a local release build
+is blocked at `hermesc.exe` (above).
+
+**Set up and run on the phone from source (a PC without Smart App Control):**
 1. Install JDK 17 and Android Studio (SDK, platform tools). Set `ANDROID_HOME`
    to `%LOCALAPPDATA%\Android\Sdk` and add `%ANDROID_HOME%\platform-tools` to
    `PATH`.
@@ -245,6 +270,11 @@ not yet run on Android):
 - Photos: choose pictures, contrast −/+, upload, delete, send the time zone.
 - Library: add `.qpk` files, covers shown, Validate, Send to device, Share,
   Delete.
+- Library, many at once (in the EAS APK from `ec8fe92`, kept in
+  `mobile/builds/`): "Add books…" with several PDFs and EPUBs -- details
+  filled in from metadata, editable, a cover per book -- then "Convert & add";
+  adding the same book again reports it already on the phone. Tick several
+  and send them; a big batch of PDFs with "keep layout" is the memory test.
 - Converter: a TXT, an EPUB (cover picked up automatically) and a PDF with
   "keep layout" (page pictures, progress, preview page turns); Save to
   library, Send to device, Share. A big PDF is the memory test.
