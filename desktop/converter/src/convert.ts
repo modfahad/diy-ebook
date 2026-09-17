@@ -122,18 +122,19 @@ export async function convert(
  * them: what the document says about itself, and for the title, the file name
  * when it says nothing -- exactly what `convert` falls back to. Reads metadata
  * only (a PDF's info, an EPUB's OPF), never the pages, so it is quick enough
- * to run as soon as a book is chosen.
+ * to run as soon as a book is chosen. `untitled` marks a title that came from
+ * the file name, so a form can ask for a real one.
  */
 export async function readDocumentDetails(
   data: Uint8Array,
   filename?: string,
-): Promise<DocumentDetails & { kind: InputKind }> {
+): Promise<DocumentDetails & { kind: InputKind; untitled?: true }> {
   const kind = detectInputKind(data, filename);
   let details: DocumentDetails = {};
   if (kind === 'pdf') details = await readPdfDetails(data);
   else if (kind === 'epub') details = await readEpubDetails(data);
   const title = details.title ?? titleFromFilename(filename);
-  return { kind, ...details, ...(title ? { title } : {}) };
+  return { kind, ...details, ...(title ? { title } : {}), ...(details.title ? {} : { untitled: true as const }) };
 }
 
 /**

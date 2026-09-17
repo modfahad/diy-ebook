@@ -66,7 +66,7 @@ export interface BookDetails {
   title: string;
   author: string;
   language: string;
-  /** Cover levels from a chosen picture; without one an EPUB's own cover is used. */
+  /** Cover levels from a chosen picture; without one an EPUB's own cover, else one drawn from the title. */
   cover: Uint8Array | null;
 }
 
@@ -81,9 +81,21 @@ export async function addToLibrary(
   known: Set<string>,
   {
     keepPdfLayout,
+    trimMargins = true,
+    singleChapter = false,
+    contentVersion,
     details,
     onStage,
-  }: { keepPdfLayout: boolean; details?: BookDetails; onStage?: (stage: string) => void },
+  }: {
+    keepPdfLayout: boolean;
+    /** Trim a kept PDF page's margins; on unless said otherwise. */
+    trimMargins?: boolean;
+    /** Treat the whole book as one chapter, skipping structure detection. */
+    singleChapter?: boolean;
+    contentVersion?: number;
+    details?: BookDetails;
+    onStage?: (stage: string) => void;
+  },
 ): Promise<AddResult> {
   const kind = extension(book.name);
   if (!BOOK_EXTENSIONS.includes(kind)) {
@@ -100,6 +112,8 @@ export async function addToLibrary(
     if (title) options.title = title;
     if (details?.author.trim()) options.author = details.author.trim();
     if (details?.language.trim()) options.language = details.language.trim();
+    if (contentVersion !== undefined && contentVersion > 1) options.contentVersion = contentVersion;
+    if (singleChapter) options.singleChapter = true;
     if (details?.cover) {
       options.cover = encodeBase64(details.cover);
     } else if (kind === 'epub') {
@@ -114,7 +128,7 @@ export async function addToLibrary(
     }
     const reply = await worker.call<ConvertReply>(
       'convert',
-      { options, keepLayout: kind === 'pdf' && keepPdfLayout, trimMargins: true, previewPage: 1 },
+      { options, keepLayout: kind === 'pdf' && keepPdfLayout, trimMargins, titleCover: true, previewPage: 1 },
       { bytes: { key: source }, onProgress: (progress) => onStage?.(describeProgress(progress)) },
     );
     if (!reply.validation.ok) {

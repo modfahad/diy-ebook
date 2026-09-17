@@ -88,6 +88,15 @@ through `expo-file-system`'s `File.arrayBuffer()`.
    worker, not just PDF: it runs the converter exactly as the desktop bridge
    does, which avoids depending on Hermes for `TextDecoder` and keeps pdf.js
    out of the app bundle.
+   **Many at once** *(2026-09-17: type-checked; not in any APK yet)* -- choose
+   several files in "Choose files…" and the tab converts them one after
+   another through `addToLibrary` (`src/addBooks.ts`). The tab's author,
+   language, content version, keep layout, trim margins and one chapter apply
+   to every book; each keeps its own title, and an EPUB its own cover (a
+   picture per book is the Library's "Add books…"). Every package that
+   validates is saved to the Library, the same book twice is reported as
+   already there, and "Stop after this one" ends the run. Choosing one file
+   keeps the single-book flow with its preview.
 
 ### The render worker
 
@@ -97,9 +106,15 @@ through `expo-file-system`'s `File.arrayBuffer()`.
 it once in a hidden `react-native-webview` (`src/render/RenderWorker.tsx`)
 and calls it with `worker.call(command, args, { bytes, onProgress })`.
 Commands: `photoRgba` (decode + 400x480 crop), `coverFromPicture`,
+`coverFromTitle` (the title in type, the cover a book gets with no picture;
+`convert` draws it itself when passed `titleCover`),
 `epubCover`, `documentDetails` (title, author and language from metadata,
 for the Library's batch form), `convert` (with PDF page pictures when
-`keepLayout`), `preview`, `validate`. `tsc` does not check this file
+`keepLayout`), `preview`, `validate`. Android kills a background app's
+WebView renderer to save memory, and the file picker backgrounds the app; a
+killed WebView cannot be reloaded, so the provider mounts a fresh one, fails
+the calls the old page was working on, and holds new calls until the new page
+says it is ready (2026-09-17; before this the tabs could wait forever). `tsc` does not check this file
 (`mobile/tsconfig.json` excludes `render-worker`), and the generated page is
 not committed: rerun `npm run worker` after changing it or the converter, or
 the app keeps calling the old one. Bytes travel as base64 in 512 KB pieces both ways; the last
