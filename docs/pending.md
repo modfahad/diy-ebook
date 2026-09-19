@@ -177,8 +177,8 @@ capacitive touch layer on its own 6-pin ribbon. `env:touch_test`
 (`firmware/src/touch_test.cpp`) is a separate bring-up build: it finds the
 chip, finds the touch orientation and draws what the finger does.
 **It has not been compiled (Smart App Control blocks the compiler here) and
-has not been run on the board.** Still to settle on the board: the ribbon's
-pin order from the spec sheet, the wiring (GPIO 15/16/17/18, our choice),
+has not been run on the board.** Still to settle on the board: the wiring (ribbon pin order read off the
+spec sheet's page 5 drawing; GPIO 15/16/17/18, our choice),
 the orientation flags, and whether the point data starts at 0x814F or 0x8150.
 Steps: board-test-checklist.md section 11. The product firmware does not use
 touch yet.
