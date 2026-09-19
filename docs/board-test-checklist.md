@@ -144,8 +144,9 @@ Expect `installed: true`; the log shows the chunks arriving as base64 without er
 
 ## 11. Touch (GDEY075T7-T01's GT911) — added 2026-09-19
 
-**Not compiled and not run yet.** It was written on the Windows PC, where
-Smart App Control blocks the compiler, so the Mac's build is its first compile.
+**Run on the board 2026-09-19 (Mac build):** GT911 found at 0x5D, id "911",
+fw 0x1060, res 800x480; taps and drags track, and the point data starts at
+0x814F (confirmed from the `bytes=` log). Still open: the orientation flags.
 It is a separate build and does not touch the product firmware.
 
 Wiring first. The touch layer has its own 6-pin ribbon; the CrowPanel has no

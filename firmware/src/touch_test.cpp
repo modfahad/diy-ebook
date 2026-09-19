@@ -120,8 +120,24 @@ void ResetGt911(bool int_high) {
   delay(50);
 }
 
+// An idle I2C bus sits HIGH. LOW on either line with the pull-ups on means
+// the GT911 is unpowered (its pins clamp the bus) or a line is shorted to GND;
+// every transaction then waits the driver's 1 s timeout, so a full scan would
+// take two minutes. Check first and say so instead.
+String BusStuck() {
+  const bool sda = digitalRead(board::kTouchSda);
+  const bool scl = digitalRead(board::kTouchScl);
+  if (sda && scl) return String();
+  char text[80];
+  snprintf(text, sizeof(text), "bus held LOW (SDA=%d SCL=%d): check 3V3/GND to the touch FPC",
+           sda, scl);
+  return String(text);
+}
+
 // Every 7-bit address that ACKs, as text, for the "not found" screen.
 String ScanBus() {
+  const String stuck = BusStuck();
+  if (stuck.length()) return stuck;
   String found;
   for (uint8_t a = 0x08; a < 0x78; ++a) {
     if (!Ack(a)) continue;
@@ -134,6 +150,7 @@ String ScanBus() {
 
 bool ProbeChip() {
   g_chip = Chip();
+  if (BusStuck().length()) return false;
   ResetGt911(false);
   if (Ack(kAddrPrimary)) {
     g_chip.addr = kAddrPrimary;

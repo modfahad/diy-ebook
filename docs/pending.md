@@ -176,10 +176,12 @@ below.
 capacitive touch layer on its own 6-pin ribbon. `env:touch_test`
 (`firmware/src/touch_test.cpp`) is a separate bring-up build: it finds the
 chip, finds the touch orientation and draws what the finger does.
-**It has not been compiled (Smart App Control blocks the compiler here) and
-has not been run on the board.** Still to settle on the board: the wiring (ribbon pin order read off the
-spec sheet's page 5 drawing; GPIO 15/16/17/18, our choice),
-the orientation flags, and whether the point data starts at 0x814F or 0x8150.
+**Run on the board 2026-09-19:** the GT911 answers at 0x5D (id "911", fw
+0x1060, 800x480), taps and drags track, and the point data starts at 0x814F.
+The wiring is GPIO 15/16/17/18 per the board header. Still to settle: the
+orientation flags (tap each numbered box), and a few I2C read errors right
+after the first refresh -- the bus has only the ESP32's internal pull-ups, so
+add 4.7k to 3V3 or drop to 100 kHz if they persist.
 Steps: board-test-checklist.md section 11. The product firmware does not use
 touch yet.
 
