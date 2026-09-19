@@ -17,6 +17,8 @@
 //   [E:GPIO]    example/arduino/Examples/5.79_GPIO/5.79_GPIO.ino
 // from github.com/Elecrow-RD/CrowPanel-ESP32-5.79-E-paper-HMI-Display-with-272-792
 //   [GxEPD2]    GxEPD2 src/gdey/GxEPD2_750_GDEY075T7.h
+//   [GD:T01]    good-display.com/product/483.html (GDEY075T7-T01: GT911,
+//               I2C, 6-pin touch FPC, 2.8-3.6 V)
 //
 // Anything still unknown is marked TODO(hw) and MUST NOT be guessed at
 // the call site.
@@ -71,6 +73,38 @@ static_assert(kWidth % 8 == 0, "framebuffer rows must be whole bytes");
 constexpr uint8_t kDisplayRotation = 0;
 static_assert(kDisplayRotation == 0 || kDisplayRotation == 2,
               "screens are laid out for landscape 800x480");
+
+// ---------------------------------------------------------------------------
+// Touch: the -T01 panel's GT911 capacitive layer  [GD:T01]
+//
+// The touch layer has its own 6-pin FPC (carries 3.3V, GND, SDA, SCL, INT,
+// RST -- in the order the spec sheet gives, see the TODO below),
+// separate from the display's 24-pin one, and the CrowPanel has no socket for
+// it. It is hand-wired through an FPC breakout to the 2x10 header.
+//
+// The four GPIO numbers are OUR CHOICE, not from any datasheet: picked from
+// kHeaderGpio below, clear of the panel, SD, rail and input pins, and all
+// RTC-capable so INT can wake from deep sleep later. Change them to match
+// however the breakout is actually wired.
+//
+// GT911 I2C address: 0x5D or 0x14, chosen by INT's level while RST rises.
+// The touch test straps 0x5D and, if nothing answers, re-straps for 0x14.
+//
+// TODO(hw): the FPC's pin order is in the GDEY075T7-T01 spec sheet
+// (good-display.com companyfile/1167); check it there, not by guessing. The
+// orientation flags are unknown until touched on the real panel: the
+// touch_test build (src/touch_test.cpp) cycles through all eight on EXIT and
+// prints the one that makes the corner targets line up.
+// ---------------------------------------------------------------------------
+constexpr int kTouchSda = 15;
+constexpr int kTouchScl = 16;
+constexpr int kTouchInt = 17;
+constexpr int kTouchRst = 18;
+constexpr uint32_t kTouchI2cHz = 400000;
+
+constexpr bool kTouchSwapXY  = false;  // TODO(hw)
+constexpr bool kTouchInvertX = false;  // TODO(hw)
+constexpr bool kTouchInvertY = false;  // TODO(hw)
 
 // ---------------------------------------------------------------------------
 // Power rails  [E:PWR] [E:TF]
@@ -155,6 +189,7 @@ constexpr int kBatteryAdcPin = -1;   // -1 == unavailable
 // ---------------------------------------------------------------------------
 // Free GPIO broken out on the 2x10 header  [E:GPIO]
 // Listed so future peripherals (Phase 3 microphone) are chosen from here.
+// 15, 16, 17 and 18 are taken by the touch panel (kTouch* above).
 // ---------------------------------------------------------------------------
 constexpr int kHeaderGpio[] = {8, 3, 14, 9, 16, 15, 18, 17, 20, 19, 38, 21};
 constexpr int kHeaderGpioCount = 12;

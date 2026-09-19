@@ -141,3 +141,37 @@ Expect `installed: true`; the log shows the chunks arriving as base64 without er
 - Rotation against the enclosure (`kDisplayRotation`).
 - Quran page-turn time after the glyph index (read it from the log).
 - Booster resistor: if an image looks faint or half-refreshed, suspect it first.
+
+## 11. Touch (GDEY075T7-T01's GT911) — added 2026-09-19
+
+**Not compiled and not run yet.** It was written on the Windows PC, where
+Smart App Control blocks the compiler, so the Mac's build is its first compile.
+It is a separate build and does not touch the product firmware.
+
+Wiring first. The touch layer has its own 6-pin ribbon; the CrowPanel has no
+socket for it, so it needs a 6-pin FPC breakout wired to the 2x10 header.
+**Take the ribbon's pin order from the GDEY075T7-T01 spec sheet.** Swapping
+3.3V and GND can destroy the GT911. The GPIOs are our choice and can be
+changed in `board_crowpanel_579.h`:
+
+| Touch signal | Header GPIO |
+|---|---|
+| 3.3V | 3V3 |
+| GND | GND |
+| SDA | 15 |
+| SCL | 16 |
+| INT | 17 |
+| RST | 18 |
+
+```bash
+pio run -d firmware -e touch_test -t upload && pio device monitor -d firmware -b 115200
+```
+
+| Do | Expect |
+|---|---|
+| Boot | The glass shows `TOUCH TEST GT911` and `addr 0x5D id "911" ... res 800x480`. If it says `GT911 NOT FOUND`, the I2C scan line under it lists what did answer (nothing = wiring/power) |
+| Tap box 1 (top left) | Box 1 fills. If another box fills, or none does, press EXIT for the next orientation (0–7) and tap again. Keep going until all five boxes fill where you tap, then copy that orientation's three flags into `kTouchSwapXY / kTouchInvertX / kTouchInvertY` |
+| First tap, in the log | A `down ... bytes=` line. The first byte should be a small track id (0–4) and the next two the x position. If the bytes look shifted by one, the point data starts at 0x8150, not 0x814F (`kRegPoints`) |
+| Drag a finger | A line follows about half a second behind; that lag is the panel's refresh |
+| Two to five fingers | One line per finger |
+| OK or MENU | Clears the glass |
