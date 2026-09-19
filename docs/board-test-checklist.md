@@ -150,18 +150,18 @@ It is a separate build and does not touch the product firmware.
 
 Wiring first. The touch layer has its own 6-pin ribbon; the CrowPanel has no
 socket for it, so it needs a 6-pin FPC breakout wired to the 2x10 header.
-**Take the ribbon's pin order from the GDEY075T7-T01 spec sheet.** Swapping
-3.3V and GND can destroy the GT911. The GPIOs are our choice and can be
-changed in `board_crowpanel_579.h`:
+The ribbon's pin order is from the spec sheet's page 5 drawing; check it there
+before powering up, because swapping 3.3V and GND can destroy the GT911. The
+GPIOs are our choice and can be changed in `board_crowpanel_579.h`:
 
-| Touch signal | Header GPIO |
-|---|---|
-| 3.3V | 3V3 |
-| GND | GND |
-| SDA | 15 |
-| SCL | 16 |
-| INT | 17 |
-| RST | 18 |
+| Touch FPC pin | Signal | CrowPanel header |
+|---|---|---|
+| 1 | GND | GND |
+| 2 | VCC | 3V3 (not 5V) |
+| 3 | RESET | GPIO 18 |
+| 4 | INT | GPIO 17 |
+| 5 | SDA | GPIO 15 |
+| 6 | SCL | GPIO 16 |
 
 ```bash
 pio run -d firmware -e touch_test -t upload && pio device monitor -d firmware -b 115200

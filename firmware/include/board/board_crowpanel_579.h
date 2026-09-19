@@ -77,10 +77,13 @@ static_assert(kDisplayRotation == 0 || kDisplayRotation == 2,
 // ---------------------------------------------------------------------------
 // Touch: the -T01 panel's GT911 capacitive layer  [GD:T01]
 //
-// The touch layer has its own 6-pin FPC (carries 3.3V, GND, SDA, SCL, INT,
-// RST -- in the order the spec sheet gives, see the TODO below),
-// separate from the display's 24-pin one, and the CrowPanel has no socket for
-// it. It is hand-wired through an FPC breakout to the 2x10 header.
+// The touch layer has its own 6-pin FPC, separate from the display's 24-pin
+// one. Spec sheet p.5 (mechanical drawing), all signals 3.3 V:
+//   1 GND   2 VCC   3 RESET   4 INT   5 SDA   6 SCL
+// Read off the drawing's label positions, not a pin table; check it against
+// the drawing before powering up.
+// The CrowPanel has no socket for it, so it is hand-wired through an FPC
+// breakout to the 2x10 header.
 //
 // The four GPIO numbers are OUR CHOICE, not from any datasheet: picked from
 // kHeaderGpio below, clear of the panel, SD, rail and input pins, and all
@@ -90,11 +93,12 @@ static_assert(kDisplayRotation == 0 || kDisplayRotation == 2,
 // GT911 I2C address: 0x5D or 0x14, chosen by INT's level while RST rises.
 // The touch test straps 0x5D and, if nothing answers, re-straps for 0x14.
 //
-// TODO(hw): the FPC's pin order is in the GDEY075T7-T01 spec sheet
-// (good-display.com companyfile/1167); check it there, not by guessing. The
-// orientation flags are unknown until touched on the real panel: the
-// touch_test build (src/touch_test.cpp) cycles through all eight on EXIT and
-// prints the one that makes the corner targets line up.
+// Spec sheet: v4.cecdn.yun300.cn/100001_1909185148/GDEY075T7-T01.pdf
+// (via good-display.com companyfile/1167).
+//
+// TODO(hw): the orientation flags are unknown until touched on the real
+// panel: the touch_test build (src/touch_test.cpp) cycles through all eight
+// on EXIT and prints the one that makes the corner targets line up.
 // ---------------------------------------------------------------------------
 constexpr int kTouchSda = 15;
 constexpr int kTouchScl = 16;
