@@ -31,8 +31,13 @@ class TouchGt911 : public hal::ITouchPanel {
   // "bus fell over".
   uint32_t frameCount() const { return frame_count_; }
   uint32_t errorCount() const { return error_count_; }
+  // I2C failures since the last good frame. A bus that stops answering
+  // mid-session is the failure this driver has actually seen on the board,
+  // and it used to be silent: poll() returned false and touch simply died.
+  uint16_t consecutiveErrors() const { return consecutive_errors_; }
 
  private:
+  void noteError();
   bool readRegister(uint16_t reg, uint8_t* out, uint8_t length);
   bool writeRegister(uint16_t reg, uint8_t value);
   bool ack(uint8_t address);
@@ -42,6 +47,8 @@ class TouchGt911 : public hal::ITouchPanel {
   hal::TouchInfo info_;
   uint32_t frame_count_ = 0;
   uint32_t error_count_ = 0;
+  uint16_t consecutive_errors_ = 0;
+  uint32_t last_recovery_ms_ = 0;
   bool logged_first_frame_ = false;
   bool bus_started_ = false;
 };

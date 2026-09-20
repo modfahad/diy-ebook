@@ -3616,12 +3616,16 @@ void PollHeartbeat(uint32_t now) {
   g_last_heartbeat_ms = now;
   drivers::Logf(
       "[hb] up=%lus screen=%s epd=%d refreshes=%lu dirty=%d busy=%d "
-      "sleep_in=%lus transfer=%s ble=%d heap_free=%lu\n",
+      "sleep_in=%lus transfer=%s ble=%d touch=%s frames=%lu i2c_err=%lu "
+      "heap_free=%lu\n",
       static_cast<unsigned long>(now / 1000), ScreenName(),
       g_display.ready() ? 1 : 0, static_cast<unsigned long>(g_refresh_count),
       g_dirty ? 1 : 0, g_idle.busy() ? 1 : 0,
       static_cast<unsigned long>(g_idle.remainingMs(now) / 1000),
       TransferStateName(), g_ble.active() ? 1 : 0,
+      g_touch.present() ? "ok" : "none",
+      static_cast<unsigned long>(g_touch.frameCount()),
+      static_cast<unsigned long>(g_touch.errorCount()),
       static_cast<unsigned long>(ESP.getFreeHeap()));
 }
 

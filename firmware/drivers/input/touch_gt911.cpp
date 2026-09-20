@@ -28,6 +28,13 @@ constexpr uint16_t kRegPoints    = 0x814F;
 constexpr uint8_t kAddrPrimary = 0x5D;  // INT held LOW while RST rises
 constexpr uint8_t kAddrAlt     = 0x14;  // INT held HIGH
 
+// Polls come every app::kInputPollIntervalMs (2 ms), and each failed one
+// costs an I2C timeout on top, so these are a fraction of a second of silence
+// rather than a long wait.
+constexpr uint16_t kErrorsBeforeComplaining = 20;
+constexpr uint16_t kErrorsBeforeRecovering = 60;
+constexpr uint32_t kRecoveryIntervalMs = 5000;
+
 }  // namespace
 
 bool TouchGt911::ack(uint8_t address) {
@@ -154,6 +161,39 @@ bool TouchGt911::begin() {
   return true;
 }
 
+// One I2C failure is noise on a bus with no pull-up resistors of its own.
+// A run of them means the chip has stopped answering, and the only way back
+// is the reset line. Both are worth saying out loud: touch dying quietly is
+// how it looked from the outside -- taps stopped working and nothing in the
+// log mentioned touch at all.
+void TouchGt911::noteError() {
+  ++error_count_;
+  if (consecutive_errors_ < 0xFFFF) ++consecutive_errors_;
+
+  if (consecutive_errors_ == kErrorsBeforeComplaining) {
+    Logf("[touch] I2C going quiet (%lu errors in all) -- weak pull-ups?\n",
+         static_cast<unsigned long>(error_count_));
+  }
+  if (consecutive_errors_ < kErrorsBeforeRecovering) return;
+
+  // Rate-limited: a chip that is unplugged must not turn into a reset loop.
+  const uint32_t now = millis();
+  if (last_recovery_ms_ != 0 &&
+      static_cast<uint32_t>(now - last_recovery_ms_) < kRecoveryIntervalMs) {
+    return;
+  }
+  last_recovery_ms_ = now;
+  consecutive_errors_ = 0;
+  Logf("[touch] no answer -- resetting the chip\n");
+  const bool was_present = info_.present;
+  if (begin()) {
+    Logf("[touch] recovered\n");
+  } else if (was_present) {
+    Logf("[touch] still not answering; will try again in %lus\n",
+         static_cast<unsigned long>(kRecoveryIntervalMs / 1000));
+  }
+}
+
 bool TouchGt911::sleep() {
   if (!info_.present) return false;
   // There is no wake command over I2C -- the datasheet's way back is INT or
@@ -169,9 +209,10 @@ bool TouchGt911::poll(hal::TouchFrame* out) {
 
   uint8_t status = 0;
   if (!readRegister(kRegStatus, &status, 1)) {
-    ++error_count_;
+    noteError();
     return false;
   }
+  consecutive_errors_ = 0;
   if ((status & 0x80) == 0) return false;  // nothing new since the last read
 
   uint8_t count = status & 0x0F;
@@ -186,9 +227,10 @@ bool TouchGt911::poll(hal::TouchFrame* out) {
   // or not: leave it set and the chip never reports another one.
   if (!writeRegister(kRegStatus, 0)) ok = false;
   if (!ok) {
-    ++error_count_;
+    noteError();
     return false;
   }
+  consecutive_errors_ = 0;
 
   out->count = count;
   for (uint8_t i = 0; i < count; ++i) {

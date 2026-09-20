@@ -282,6 +282,20 @@ showed:
   menu`, and the ignored cases say why. The touch log line carries the mapped
   point, the chip's own numbers, the orientation and the screen.
 
+**Touch went silent mid-session, twice -- 2026-09-21.** Taps worked for
+minutes and then stopped, with nothing in the log mentioning touch at all:
+`poll()` was getting I2C errors, returning false and saying nothing, so from
+the outside it looked like the options menu was broken. The driver now counts
+consecutive failures, says `[touch] I2C going quiet` at 20, and resets the
+chip at 60 (rate-limited to one attempt per 5 s, so an unplugged panel cannot
+become a reset loop). The heartbeat carries `touch=ok frames=N i2c_err=N`, so
+the same silence is visible next time without a reflash.
+
+**This is software working around a hardware weakness, and it should not be
+mistaken for a fix.** The bus has no pull-up resistors of its own: 4.7k from
+SDA (GPIO15) and SCL (GPIO16) to 3V3 is the real answer, and `i2c_err` in the
+heartbeat is now the number that says whether they are needed.
+
 **Still not settled: the orientation flags.** Taps land somewhere sensible at
 `touch=0`, but nobody has tapped the two boxes on the setup screen to prove
 it, and nothing is saved to `/DEVICE/screen.txt` yet.
