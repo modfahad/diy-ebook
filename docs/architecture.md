@@ -446,10 +446,21 @@ Four decisions worth keeping:
   panel behaves exactly as it always has. The buttons are the primary input;
   touch is the addition.
 
-The touch layer draws 8 mA awake against 100 µA idle, which matters for a
-battery this device does not have a divider for yet. Powering it down with
-the screen, and waking on its INT line (RTC-capable, so it can), are both
-open — see pending.md.
+**Sleeping, and waking on a tap, are the same decision from opposite ends.**
+The GT911 draws about 8 mA scanning and about 100 uA asleep, and a chip that
+is asleep cannot notice a finger. So `app::kTouchSleepWithScreen` (on) tells
+it to sleep when the device does -- nothing has to wake it again, because
+`begin()` toggles RST on every wake, which is the datasheet's way back --
+while `app::kWakeOnTouch` (off) leaves it scanning instead and adds its INT
+line to the EXT1 wake mask (`board::kWakeMaskWithTouch`; INT is RTC-capable,
+which is what makes this possible at all).
+
+Waking on a tap stays off until the bench confirms one thing, which the setup
+screen now prints live: **INT must idle HIGH and go LOW under a finger.** EXT1
+here is ANY_LOW, so the opposite polarity is a device that wakes the instant
+it sleeps, forever. The pin also keeps its RTC pull-up through sleep, because
+the GT911 leaves INT high-impedance between signals, and a floating pin in an
+ANY_LOW mask is that same failure by another route.
 
 ## 5d. The options menu: one meaning for a held OK
 

@@ -194,8 +194,13 @@ with a GT911 capacitive touch layer on its own 6-pin ribbon.
   App Control blocks every compiler on the Windows PC) and have not run on the
   board. First compile and the new host tests are a Mac job:
   `python firmware/scripts/run_host_tests.py` and `pio run -d firmware`.
-- Not done, deliberately: powering the touch layer down with the screen
-  (8 mA awake vs 100 uA idle) and waking the device on its INT line.
+- The touch layer now sleeps with the screen (`app::kTouchSleepWithScreen`,
+  ~100 uA instead of ~8 mA scanning). **Tap-to-wake is built but off**
+  (`app::kWakeOnTouch`): it needs INT confirmed to idle HIGH and pulse LOW
+  first -- the setup screen prints the live level -- because EXT1 is ANY_LOW
+  and the wrong polarity is a device that never stays asleep. Turning it on
+  also gives up that sleep current, since a sleeping chip cannot feel a
+  finger. See architecture.md 5c and checklist section 15.
 
 **The options menu (2026-09-20).** Hold OK on any screen opens
 `ui::OptionsMenu` -- that screen's actions by name, worked by the wheel and OK

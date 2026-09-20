@@ -237,3 +237,19 @@ touch orientation being right.
 | Scroll Saved places past the twelfth row, then tap the top row | The row you tapped opens, not the one that used to be there |
 | Tap a surah in the surah list | That surah opens — check the number matches, an off-by-one would open its neighbour |
 | Rest a thumb on the glass for a second while reading | Nothing opens. The options menu is hold OK, not hold-on-glass |
+
+## 15. Touch and sleep - added 2026-09-20
+
+**Not compiled and not run yet.** Section 13 first.
+
+| Do | Expect |
+|---|---|
+| On the setup screen, read the "Touch INT line" row with nothing touching the glass | It should say **HIGH**. If it says LOW untouched, stop - do not turn on tap-to-wake, and say so |
+| Tap and hold a finger on the glass, watching that row | It should flip to **LOW** while held. HIGH-when-touched is the opposite polarity, and needs EXT1 changed rather than the flag flipped |
+| Let the device sleep (EXIT, or the idle timer) | The log shows `[touch] asleep` just before it goes |
+| Tap the glass while it is asleep | **Nothing happens** - correct today. A button wakes it |
+| Wake it with a button, then tap | Touch works again at once: the reset on wake is what brings the chip back |
+| Measure sleep current at the BAT connector | About what it was before touch existed. Milliamps means the chip did not sleep |
+| **Only if INT behaved above:** set `app::kWakeOnTouch = true`, rebuild, sleep it | A tap wakes the device, and the log says `[power] woken by a tap on the glass` |
+| With tap-to-wake on, leave it asleep a minute untouched | It stays asleep. Waking immediately and repeatedly means INT is floating or inverted - turn the flag back off |
+| With tap-to-wake on, measure sleep current again | Higher, by the chip's scanning draw. That is the trade; decide it with a real battery in hand |
