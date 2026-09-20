@@ -116,6 +116,18 @@ void SetupScreen::flipPicture(SetupState* state) {
   state->saved = false;
 }
 
+void SetupScreen::resetToDefaults(SetupState* state, uint8_t default_rotation,
+                                  uint8_t default_touch_orientation) {
+  if (state == nullptr) return;
+  state->rotation = default_rotation == 2 ? 2 : 0;
+  state->touch_orientation = static_cast<uint8_t>(
+      default_touch_orientation % util::kTouchOrientationCount);
+  state->target1_hit = false;
+  state->target2_hit = false;
+  state->has_tap = false;
+  state->saved = false;
+}
+
 bool SetupScreen::bothTargetsHit(const SetupState& state) {
   return state.target1_hit && state.target2_hit;
 }
@@ -177,7 +189,7 @@ void SetupScreen::render(gfx::Canvas& canvas, const SetupState& state) {
 
   canvas.drawHLine(kRuleX, kFooterRuleY, kRuleW, gfx::kBlack);
   CenterText(canvas, kFooterTextY,
-             "OK/WHEEL=next touch way   MENU=turn picture   EXIT=save and close",
+             "OK=touch way   MENU=turn   hold MENU=defaults   EXIT=save",
              kBodyScale);
 }
 

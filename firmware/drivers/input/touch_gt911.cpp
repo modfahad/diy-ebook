@@ -232,6 +232,27 @@ bool TouchGt911::poll(hal::TouchFrame* out) {
   }
   consecutive_errors_ = 0;
 
+  // A frame of nothing but zeros is not a finger at the origin, it is a read
+  // that went wrong -- seen on the board straight after an I2C stumble,
+  // claiming five fingers all at (0,0) with zero contact area. Taking it at
+  // face value puts a phantom tap in the top corner of whatever is on screen.
+  bool all_zero = count > 0;
+  for (uint8_t i = 0; i < count && all_zero; ++i) {
+    const uint8_t* p = raw + 8 * i;
+    for (uint8_t b = 0; b < 7; ++b) {
+      if (p[b] != 0) {
+        all_zero = false;
+        break;
+      }
+    }
+  }
+  if (all_zero) {
+    noteError();
+    Logf("[touch] dropped an all-zero frame claiming %u fingers\n",
+         static_cast<unsigned>(count));
+    return false;
+  }
+
   out->count = count;
   for (uint8_t i = 0; i < count; ++i) {
     const uint8_t* p = raw + 8 * i;

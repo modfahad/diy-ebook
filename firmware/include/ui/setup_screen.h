@@ -71,6 +71,12 @@ class SetupScreen {
 
   static void flipPicture(SetupState* state);
 
+  // Back to the firmware's own defaults, for when a saved setting has made
+  // the screen hard to use -- which is exactly when cycling through eight
+  // orientations by hand is the last thing anyone wants to do.
+  static void resetToDefaults(SetupState* state, uint8_t default_rotation,
+                              uint8_t default_touch_orientation);
+
   // True when both targets have been hit under the current orientation, which
   // is the whole point of the screen.
   static bool bothTargetsHit(const SetupState& state);

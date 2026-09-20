@@ -2787,6 +2787,21 @@ bool HandleScreenSetupEvent(const hal::InputEvent& ev) {
         g_display.setRotation(g_setup.rotation);
         g_force_full_refresh = true;
         g_dirty = true;
+      } else if (ev.action == hal::InputAction::kLongPress) {
+        // The way back from a saved setting that made the device hard to
+        // use. Cycling eight orientations by hand is fine when you are
+        // hunting for the right one; it is miserable when taps are landing
+        // 200 px from your finger and you just want the defaults again.
+        const util::ScreenSetup defaults = DefaultScreenSetup();
+        ui::SetupScreen::resetToDefaults(&g_setup, defaults.rotation,
+                                         defaults.touch_orientation);
+        g_display.setRotation(g_setup.rotation);
+        g_input.setTouchOrientation(g_setup.touch_orientation);
+        drivers::Logf("[setup] back to defaults: rotation=%u touch=%u\n",
+                      static_cast<unsigned>(g_setup.rotation),
+                      static_cast<unsigned>(g_setup.touch_orientation));
+        g_force_full_refresh = true;
+        g_dirty = true;
       }
       break;
 

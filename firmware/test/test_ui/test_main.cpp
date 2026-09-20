@@ -2004,6 +2004,35 @@ void test_surah_picker_row_at_is_zero_based_like_selected() {
   TEST_ASSERT_EQUAL_INT32(-1, ui::SurahPickerScreen::rowAt(nothing, 300, 90));
 }
 
+
+void test_setup_reset_to_defaults_undoes_a_bad_saved_setting() {
+  // The escape hatch: a saved orientation that puts taps 200 px from the
+  // finger makes cycling by hand miserable, so one press restores what the
+  // firmware was built with.
+  ui::SetupState state;
+  state.rotation = 2;
+  state.touch_orientation = 5;
+  ui::SetupScreen::noteTap(&state, ui::kSetupTarget1X + 5, ui::kSetupTarget1Y + 5);
+  TEST_ASSERT_TRUE(state.target1_hit);
+
+  ui::SetupScreen::resetToDefaults(&state, 0, 0);
+  TEST_ASSERT_EQUAL_UINT8(0, state.rotation);
+  TEST_ASSERT_EQUAL_UINT8(0, state.touch_orientation);
+  // Whatever was proven about the old setting means nothing now.
+  TEST_ASSERT_FALSE(state.target1_hit);
+  TEST_ASSERT_FALSE(state.has_tap);
+  TEST_ASSERT_FALSE(state.saved);
+
+  // A board whose defaults are not zero gets its own defaults back, and an
+  // out-of-range one is clamped rather than stored.
+  ui::SetupScreen::resetToDefaults(&state, 2, 3);
+  TEST_ASSERT_EQUAL_UINT8(2, state.rotation);
+  TEST_ASSERT_EQUAL_UINT8(3, state.touch_orientation);
+  ui::SetupScreen::resetToDefaults(&state, 1, 99);
+  TEST_ASSERT_EQUAL_UINT8(0, state.rotation);
+  TEST_ASSERT_TRUE(state.touch_orientation < util::kTouchOrientationCount);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_surah_picker_row_count_is_zero_with_no_package_open);
@@ -2076,6 +2105,7 @@ int main(int, char**) {
   RUN_TEST(test_setup_orientation_cycles_through_all_eight);
   RUN_TEST(test_setup_flip_toggles_between_the_two_landscape_rotations);
   RUN_TEST(test_setup_turning_the_picture_forgets_the_old_hits_too);
+  RUN_TEST(test_setup_reset_to_defaults_undoes_a_bad_saved_setting);
   RUN_TEST(test_setup_renders_inside_the_panel);
   RUN_TEST(test_menu_offers_the_setup_screen_where_it_can_be_reached);
 
