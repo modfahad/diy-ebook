@@ -89,11 +89,33 @@ bool TouchGt911::identify(uint8_t address) {
   if (!readRegister(kRegProductId, id, static_cast<uint8_t>(sizeof(id)))) {
     return false;
   }
+
+  // A bus with nothing driving it reads back as all ones, and this driver
+  // used to take that at face value: seen on the board 2026-09-21 announcing
+  // `GT911 at 0x5D id="9#??" fw=0xFFFF res=65535x65535` and calling itself
+  // recovered, after which every "touch" was a garbage coordinate. A real
+  // GT911 answers "911" and a sane resolution, so anything else is the bus,
+  // not a chip.
+  const uint16_t firmware = static_cast<uint16_t>(id[4] | (id[5] << 8));
+  const uint16_t width = static_cast<uint16_t>(id[6] | (id[7] << 8));
+  const uint16_t height = static_cast<uint16_t>(id[8] | (id[9] << 8));
+  const bool looks_like_gt911 =
+      id[0] == '9' && id[1] == '1' && id[2] == '1' && firmware != 0xFFFF &&
+      firmware != 0 && width <= 4096 && height <= 4096;
+  if (!looks_like_gt911) {
+    Logf("[touch] 0x%02X answered with nonsense: id=%02X %02X %02X %02X "
+         "fw=0x%04X res=%ux%u -- treating the bus as empty\n",
+         static_cast<unsigned>(address), id[0], id[1], id[2], id[3],
+         static_cast<unsigned>(firmware), static_cast<unsigned>(width),
+         static_cast<unsigned>(height));
+    return false;
+  }
+
   memcpy(info_.product, id, 4);
   info_.product[4] = 0;
-  info_.firmware = static_cast<uint16_t>(id[4] | (id[5] << 8));
-  info_.raw_width = static_cast<uint16_t>(id[6] | (id[7] << 8));
-  info_.raw_height = static_cast<uint16_t>(id[8] | (id[9] << 8));
+  info_.firmware = firmware;
+  info_.raw_width = width;
+  info_.raw_height = height;
   // An unconfigured chip reports a zero resolution; the panel's own size is
   // the only sane assumption then, and util::MapTouchPoint falls back to it.
   if (info_.raw_width == 0) info_.raw_width = board::kWidth;
@@ -232,25 +254,38 @@ bool TouchGt911::poll(hal::TouchFrame* out) {
   }
   consecutive_errors_ = 0;
 
-  // A frame of nothing but zeros is not a finger at the origin, it is a read
-  // that went wrong -- seen on the board straight after an I2C stumble,
-  // claiming five fingers all at (0,0) with zero contact area. Taking it at
-  // face value puts a phantom tap in the top corner of whatever is on screen.
+  // A frame of nothing but zeros, or nothing but ones, is not a finger: it
+  // is a read that went wrong. Both have been seen on this board -- five
+  // fingers at (0,0) after an I2C stumble, and (65405,65535) off a bus with
+  // nothing driving it. Taken at face value they are phantom taps in a
+  // corner of whatever is on screen.
   bool all_zero = count > 0;
-  for (uint8_t i = 0; i < count && all_zero; ++i) {
+  bool all_ones = count > 0;
+  for (uint8_t i = 0; i < count && (all_zero || all_ones); ++i) {
     const uint8_t* p = raw + 8 * i;
     for (uint8_t b = 0; b < 7; ++b) {
-      if (p[b] != 0) {
-        all_zero = false;
-        break;
-      }
+      if (p[b] != 0x00) all_zero = false;
+      if (p[b] != 0xFF) all_ones = false;
     }
   }
-  if (all_zero) {
+  if (all_zero || all_ones) {
     noteError();
-    Logf("[touch] dropped an all-zero frame claiming %u fingers\n",
-         static_cast<unsigned>(count));
+    Logf("[touch] dropped an all-%s frame claiming %u fingers\n",
+         all_zero ? "zero" : "ones", static_cast<unsigned>(count));
     return false;
+  }
+
+  // And any single point outside the chip's own resolution is the same story.
+  for (uint8_t i = 0; i < count; ++i) {
+    const uint8_t* p = raw + 8 * i;
+    const uint16_t px = static_cast<uint16_t>(p[1] | (p[2] << 8));
+    const uint16_t py = static_cast<uint16_t>(p[3] | (p[4] << 8));
+    if (px >= info_.raw_width * 2 || py >= info_.raw_height * 2) {
+      noteError();
+      Logf("[touch] dropped a point off the panel: (%u,%u)\n",
+           static_cast<unsigned>(px), static_cast<unsigned>(py));
+      return false;
+    }
   }
 
   out->count = count;

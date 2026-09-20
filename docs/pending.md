@@ -296,6 +296,29 @@ mistaken for a fix.** The bus has no pull-up resistors of its own: 4.7k from
 SDA (GPIO15) and SCL (GPIO16) to 3V3 is the real answer, and `i2c_err` in the
 heartbeat is now the number that says whether they are needed.
 
+**The touch bus goes fully dead, and that is hardware -- 2026-09-21,
+still open.** Not bit errors: the whole bus stops answering. Caught in the
+log as `[touch] no GT911 on SDA15/SCL16 (I2C scan: nothing)` after a run of
+failures, and before that as reads of 0xFF everywhere -- `raw=(65405,65535)`,
+`fw=0xFFFF res=65535x65535`, which is what an undriven bus looks like. It
+comes and goes: touch worked for minutes, died, came back after a reset, died
+again, and one cold boot never found the chip at all.
+
+Weak pull-ups explain corrupted bits, not a chip that vanishes. **Suspect the
+physical connection first:** the 6-pin touch FPC in its breakout, the solder
+joints on the four flying leads, and the 3.3V feed to the touch layer. Reseat
+the ribbon, check continuity from each header pin to the FPC pad, and check
+3.3V at the panel end while it is failing. Then fit the 4.7k pull-ups on SDA
+and SCL, which are needed regardless.
+
+**The driver believed the garbage, which was its own bug.** `identify()` took
+all-ones as a valid chip and announced `GT911 at 0x5D id="9#??"`, then
+reported "recovered" and fed nonsense coordinates to the UI. It now requires
+the product id to read "911", a firmware word that is neither 0 nor 0xFFFF,
+and a sane resolution; anything else is logged as nonsense and the bus is
+treated as empty. Frames of all zeros or all ones are dropped, as is any
+point outside twice the chip's resolution.
+
 **Still not settled: the orientation flags.** Taps land somewhere sensible at
 `touch=0`, but nobody has tapped the two boxes on the setup screen to prove
 it, and nothing is saved to `/DEVICE/screen.txt` yet.

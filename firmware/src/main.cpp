@@ -3306,7 +3306,10 @@ void HandleEvent(const hal::InputEvent& ev) {
         InputActionName(ev.action), static_cast<int>(ev.x),
         static_cast<int>(ev.y), static_cast<unsigned>(diag.touch_raw_x),
         static_cast<unsigned>(diag.touch_raw_y),
-        static_cast<unsigned>(g_screen_setup.touch_orientation), ScreenName(),
+        static_cast<unsigned>(g_screen_mode == ScreenMode::kScreenSetup
+                                  ? g_setup.touch_orientation
+                                  : g_screen_setup.touch_orientation),
+        ScreenName(),
         g_menu_open ? " (menu open)" : "");
   } else {
     drivers::Logf("[input] %s %s delta=%d\n", InputSourceName(ev.source),
