@@ -42,6 +42,38 @@ If the port is not detected, add it explicitly:
 pio run -d firmware -e crowpanel_579 -t upload --upload-port COM5
 ```
 
+### On the Windows PC: build in WSL, flash from Windows
+
+Smart App Control blocks the Windows toolchain *and* `pio.exe`, but not the
+Linux toolchain inside WSL2, and not Python scripts. So the two halves run in
+different places.
+
+```bash
+# build (WSL, Ubuntu 24.04; needs python3.12-venv once, then PlatformIO in a venv)
+wsl -d Ubuntu-24.04 -- bash -lc "cd /mnt/d/interview/diy-ebook && ~/.pio-venv/bin/pio run -d firmware -e crowpanel_579"
+wsl -d Ubuntu-24.04 -- bash -lc "cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin /mnt/d/interview/diy-ebook/firmware/.pio/build/crowpanel_579/"
+```
+
+```powershell
+# flash (Windows PowerShell, board on COM6)
+$env:PYTHONPATH = "$env:USERPROFILE\.platformio\packages	ool-esptoolpy"
+$b = "D:\interview\diy-ebookirmware\.piouild\crowpanel_579"
+python -m esptool --chip esp32s3 --port COM6 --baud 460800 --before default_reset --after hard_reset `
+  write_flash -z --flash_mode dio --flash_freq 80m --flash_size 8MB `
+  0x0 "$bootloader.bin" 0x8000 "$b\partitions.bin" 0xe000 "$boot_app0.bin" 0x10000 "$birmware.bin"
+```
+
+**Do not run Windows PlatformIO against the same `.pio` directory.** It does
+not recognise a tree built by the Linux toolchain and **deletes it** before
+failing -- `python -m platformio run -t nobuild -t upload` wiped a good build
+on 2026-09-21 and then reported `firmware.bin not found`. Flash with esptool
+directly, as above, or pass the USB device through to WSL with usbipd-win and
+upload from there.
+
+The four offsets above are the ESP32-S3 Arduino layout: bootloader at 0x0 (not
+0x1000, which is the classic ESP32), partitions at 0x8000, `boot_app0.bin` at
+0xe000 and the application at 0x10000.
+
 If upload fails to start, force download mode: **hold BOOT, tap RESET, release
 BOOT**, then upload again.
 
