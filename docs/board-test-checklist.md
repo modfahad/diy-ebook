@@ -176,7 +176,7 @@ pio run -d firmware -e touch_test -t upload && pio device monitor -d firmware -b
 |---|---|
 | Boot | The glass shows `TOUCH TEST GT911` and `addr 0x5D id "911" ... res 800x480`. If it says `GT911 NOT FOUND`, the I2C scan line under it lists what did answer (nothing = wiring/power) |
 | Tap box 1 (top left) | Box 1 fills. If another box fills, or none does, press EXIT for the next orientation (0–7) and tap again. Keep going until all five boxes fill where you tap, then copy that orientation's three flags into `kTouchSwapXY / kTouchInvertX / kTouchInvertY` |
-| First tap, in the log | A `down ... bytes=` line. The first byte should be a small track id (0–4) and the next two the x position. If the bytes look shifted by one, the point data starts at 0x8150, not 0x814F (`kRegPoints`) |
+| First tap, in the log | A `down ... bytes=` line. The first byte is a small track id (0–4) and the next two the x position — confirmed on this board 2026-09-19, so `kRegPoints = 0x814F` is right. Bytes shifted by one would mean 0x8150 |
 | Drag a finger | A line follows about half a second behind; that lag is the panel's refresh |
 | Two to five fingers | One line per finger |
 | OK or MENU | Clears the glass |

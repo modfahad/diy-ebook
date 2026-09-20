@@ -16,10 +16,10 @@ namespace {
 constexpr uint16_t kRegProductId = 0x8140;  // 4 ASCII bytes, then fw, then res
 constexpr uint16_t kRegStatus    = 0x814E;  // bit 7 = a frame is ready
 // Point data. 8 bytes per point: track id, x, y, size (all u16 LE), reserved.
-// TODO(hw): published GT911 register maps disagree about whether point 1
-// starts here or at 0x8150. The first frame is logged raw (see poll()) so the
-// board itself settles it; if the bytes come out shifted by one, this is the
-// constant to change.
+// Published GT911 register maps disagree about whether point 1 starts here or
+// at 0x8150; this chip settled it on the board on 2026-09-19 (0x814F -- see
+// bring-up in pending.md). The first frame is still logged raw in poll(),
+// which is what proved it and what would show a different chip disagreeing.
 constexpr uint16_t kRegPoints    = 0x814F;
 
 constexpr uint8_t kAddrPrimary = 0x5D;  // INT held LOW while RST rises
