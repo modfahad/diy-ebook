@@ -26,6 +26,7 @@
 #include "util/idle_policy.h"
 #include "util/rotary.h"
 #include "util/text_pager.h"
+#include "util/touch.h"
 
 // ---------------------------------------------------------------------------
 // Debouncer
@@ -574,6 +575,167 @@ void test_pager_repagination_is_stable_across_widths() {
 void setUp() {}
 void tearDown() {}
 
+
+// ---------------------------------------------------------------------------
+// Touch: coordinate mapping and tap classification (util/touch.h)
+//
+// Every one of these is a question the panel itself will answer once
+// src/touch_test.cpp has been run (the orientation flags), but the mapping
+// arithmetic and the tap rules have to be right whatever the answer is.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+util::TouchMapping PanelMapping(bool swap, bool inv_x, bool inv_y) {
+  util::TouchMapping m;
+  m.raw_width = 800;
+  m.raw_height = 480;
+  m.out_width = 800;
+  m.out_height = 480;
+  m.swap_xy = swap;
+  m.invert_x = inv_x;
+  m.invert_y = inv_y;
+  return m;
+}
+
+}  // namespace
+
+void test_touch_mapping_is_identity_when_nothing_is_flipped() {
+  const util::TouchMapping m = PanelMapping(false, false, false);
+  util::TouchXY p = util::MapTouchPoint(0, 0, m);
+  TEST_ASSERT_EQUAL_INT16(0, p.x);
+  TEST_ASSERT_EQUAL_INT16(0, p.y);
+  p = util::MapTouchPoint(799, 479, m);
+  TEST_ASSERT_EQUAL_INT16(799, p.x);
+  TEST_ASSERT_EQUAL_INT16(479, p.y);
+  p = util::MapTouchPoint(400, 240, m);
+  TEST_ASSERT_EQUAL_INT16(400, p.x);
+  TEST_ASSERT_EQUAL_INT16(240, p.y);
+}
+
+void test_touch_mapping_mirrors_each_axis() {
+  util::TouchXY p = util::MapTouchPoint(0, 0, PanelMapping(false, true, false));
+  TEST_ASSERT_EQUAL_INT16(799, p.x);
+  TEST_ASSERT_EQUAL_INT16(0, p.y);
+
+  p = util::MapTouchPoint(0, 0, PanelMapping(false, false, true));
+  TEST_ASSERT_EQUAL_INT16(0, p.x);
+  TEST_ASSERT_EQUAL_INT16(479, p.y);
+
+  // Upside down: the top-left corner reports as the bottom-right one.
+  p = util::MapTouchPoint(0, 0, PanelMapping(false, true, true));
+  TEST_ASSERT_EQUAL_INT16(799, p.x);
+  TEST_ASSERT_EQUAL_INT16(479, p.y);
+}
+
+void test_touch_mapping_swaps_axes_with_their_own_ranges() {
+  // A portrait-wired touch layer: the chip counts 0..479 across what the
+  // display calls x. Scaling must use each axis's OWN range, or the corners
+  // land off-panel.
+  util::TouchMapping m = PanelMapping(true, false, false);
+  m.raw_width = 480;
+  m.raw_height = 800;
+
+  util::TouchXY p = util::MapTouchPoint(0, 0, m);
+  TEST_ASSERT_EQUAL_INT16(0, p.x);
+  TEST_ASSERT_EQUAL_INT16(0, p.y);
+
+  p = util::MapTouchPoint(479, 799, m);
+  TEST_ASSERT_EQUAL_INT16(799, p.x);
+  TEST_ASSERT_EQUAL_INT16(479, p.y);
+}
+
+void test_touch_mapping_clamps_and_survives_a_zero_resolution() {
+  const util::TouchMapping m = PanelMapping(false, false, false);
+  util::TouchXY p = util::MapTouchPoint(5000, 5000, m);
+  TEST_ASSERT_EQUAL_INT16(799, p.x);
+  TEST_ASSERT_EQUAL_INT16(479, p.y);
+
+  // An unconfigured GT911 reports 0x0. The panel's own size stands in, and
+  // nothing divides by zero.
+  util::TouchMapping unconfigured = PanelMapping(false, false, false);
+  unconfigured.raw_width = 0;
+  unconfigured.raw_height = 0;
+  p = util::MapTouchPoint(400, 240, unconfigured);
+  TEST_ASSERT_EQUAL_INT16(400, p.x);
+  TEST_ASSERT_EQUAL_INT16(240, p.y);
+}
+
+void test_touch_tap_reports_down_then_tap_at_the_landing_spot() {
+  util::TapTracker t;
+  t.begin(700, 24);
+
+  TEST_ASSERT_EQUAL(util::TouchEvent::kDown, t.update(true, 100, 200, 1000));
+  // A couple of pixels of wobble is still the same tap.
+  TEST_ASSERT_EQUAL(util::TouchEvent::kNone, t.update(true, 103, 198, 1050));
+  TEST_ASSERT_EQUAL(util::TouchEvent::kTap, t.update(false, 0, 0, 1100));
+  // The tap belongs where the finger landed, not where it drifted to.
+  TEST_ASSERT_EQUAL_INT16(100, t.x());
+  TEST_ASSERT_EQUAL_INT16(200, t.y());
+  TEST_ASSERT_FALSE(t.down());
+}
+
+void test_touch_long_press_fires_once_while_the_finger_is_still_down() {
+  util::TapTracker t;
+  t.begin(700, 24);
+
+  t.update(true, 400, 240, 0);
+  TEST_ASSERT_EQUAL(util::TouchEvent::kNone, t.update(true, 400, 240, 699));
+  TEST_ASSERT_EQUAL(util::TouchEvent::kLongPress, t.update(true, 400, 240, 700));
+  TEST_ASSERT_EQUAL(util::TouchEvent::kNone, t.update(true, 400, 240, 1500));
+  // Releasing after a long press is not also a tap -- that would run two
+  // actions off one gesture.
+  TEST_ASSERT_EQUAL(util::TouchEvent::kUp, t.update(false, 0, 0, 1600));
+}
+
+void test_touch_a_slide_is_neither_a_tap_nor_a_long_press() {
+  util::TapTracker t;
+  t.begin(700, 24);
+
+  t.update(true, 100, 100, 0);
+  TEST_ASSERT_EQUAL(util::TouchEvent::kNone, t.update(true, 100, 140, 100));
+  // Held well past the threshold, but it has moved: no long press.
+  TEST_ASSERT_EQUAL(util::TouchEvent::kNone, t.update(true, 100, 140, 900));
+  TEST_ASSERT_EQUAL(util::TouchEvent::kUp, t.update(false, 0, 0, 1000));
+  TEST_ASSERT_EQUAL_INT16(140, t.lastY());
+}
+
+void test_touch_a_finger_returning_to_the_start_is_still_a_slide() {
+  // Slop is measured against the landing point at every step, so a swipe out
+  // and back cannot come home and count as a tap.
+  util::TapTracker t;
+  t.begin(700, 24);
+
+  t.update(true, 300, 300, 0);
+  t.update(true, 300, 400, 50);
+  TEST_ASSERT_EQUAL(util::TouchEvent::kNone, t.update(true, 300, 300, 100));
+  TEST_ASSERT_EQUAL(util::TouchEvent::kUp, t.update(false, 0, 0, 150));
+}
+
+void test_touch_second_tap_starts_clean_after_the_first() {
+  util::TapTracker t;
+  t.begin(700, 24);
+
+  t.update(true, 10, 10, 0);
+  t.update(true, 10, 200, 100);            // slides: not a tap
+  TEST_ASSERT_EQUAL(util::TouchEvent::kUp, t.update(false, 0, 0, 200));
+
+  TEST_ASSERT_EQUAL(util::TouchEvent::kDown, t.update(true, 500, 100, 300));
+  TEST_ASSERT_EQUAL(util::TouchEvent::kTap, t.update(false, 0, 0, 350));
+  TEST_ASSERT_EQUAL_INT16(500, t.x());
+}
+
+void test_touch_survives_millis_wraparound() {
+  util::TapTracker t;
+  t.begin(700, 24);
+
+  const uint32_t near_wrap = 0xFFFFFF00u;
+  t.update(true, 200, 200, near_wrap);
+  // 0x100 ms later, the counter has wrapped through zero.
+  TEST_ASSERT_EQUAL(util::TouchEvent::kNone, t.update(true, 200, 200, 0x50u));
+  TEST_ASSERT_EQUAL(util::TouchEvent::kLongPress, t.update(true, 200, 200, 0x200u));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
 
@@ -624,6 +786,17 @@ int main(int, char**) {
   RUN_TEST(test_pager_page_count_and_last_page);
   RUN_TEST(test_pager_handles_degenerate_input);
   RUN_TEST(test_pager_repagination_is_stable_across_widths);
+
+  RUN_TEST(test_touch_mapping_is_identity_when_nothing_is_flipped);
+  RUN_TEST(test_touch_mapping_mirrors_each_axis);
+  RUN_TEST(test_touch_mapping_swaps_axes_with_their_own_ranges);
+  RUN_TEST(test_touch_mapping_clamps_and_survives_a_zero_resolution);
+  RUN_TEST(test_touch_tap_reports_down_then_tap_at_the_landing_spot);
+  RUN_TEST(test_touch_long_press_fires_once_while_the_finger_is_still_down);
+  RUN_TEST(test_touch_a_slide_is_neither_a_tap_nor_a_long_press);
+  RUN_TEST(test_touch_a_finger_returning_to_the_start_is_still_a_slide);
+  RUN_TEST(test_touch_second_tap_starts_clean_after_the_first);
+  RUN_TEST(test_touch_survives_millis_wraparound);
 
   return UNITY_END();
 }

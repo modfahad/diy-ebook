@@ -42,6 +42,24 @@ bool InputManager::begin() {
   diag_.encoder_a_level = a;
   diag_.encoder_b_level = b;
 
+  // Touch is additive: a panel that does not answer leaves the front panel
+  // working exactly as before, so begin() never fails on its account.
+  tap_.begin(app::kTouchLongPressMs, app::kTouchSlopPx);
+  touch_down_ = false;
+  touch_frame_ms_ = millis();
+  mapping_ = util::TouchMapping();
+  if (touch_ != nullptr && touch_->begin()) {
+    const hal::TouchInfo info = touch_->info();
+    mapping_.raw_width = info.raw_width;
+    mapping_.raw_height = info.raw_height;
+    mapping_.out_width = board::kWidth;
+    mapping_.out_height = board::kHeight;
+    mapping_.swap_xy = board::kTouchSwapXY;
+    mapping_.invert_x = board::kTouchInvertX;
+    mapping_.invert_y = board::kTouchInvertY;
+    diag_.touch_present = true;
+  }
+
   head_ = 0;
   count_ = 0;
   last_activity_ms_ = millis();
@@ -51,6 +69,11 @@ bool InputManager::begin() {
 
 void InputManager::push(hal::InputSource source, hal::InputAction action,
                         int16_t delta, uint32_t now_ms) {
+  push(source, action, delta, 0, 0, now_ms);
+}
+
+void InputManager::push(hal::InputSource source, hal::InputAction action,
+                        int16_t delta, int16_t x, int16_t y, uint32_t now_ms) {
   last_activity_ms_ = now_ms;
   if (count_ >= kQueueSize) {
     // Drop the oldest rather than the newest: the most recent intent wins.
@@ -61,6 +84,8 @@ void InputManager::push(hal::InputSource source, hal::InputAction action,
   queue_[tail].source = source;
   queue_[tail].action = action;
   queue_[tail].delta = delta;
+  queue_[tail].x = x;
+  queue_[tail].y = y;
   queue_[tail].timestamp_ms = now_ms;
   ++count_;
 }
@@ -93,6 +118,70 @@ void InputManager::pumpButton(util::Button& button, hal::InputSource source,
       break;
     case util::ButtonEvent::kNone:
     default:
+      break;
+  }
+}
+
+// One finger's worth of meaning out of whatever the panel reports. The GT911
+// sends a frame only when something changes, so "no frame" means the finger
+// (or the absence of one) is unchanged since the last poll -- which is why
+// the last position is remembered rather than re-read.
+void InputManager::pumpTouch(uint32_t now_ms) {
+  if (touch_ == nullptr || !diag_.touch_present) return;
+
+  hal::TouchFrame frame;
+  if (touch_->poll(&frame)) {
+    touch_frame_ms_ = now_ms;
+    touch_down_ = frame.count > 0;
+    diag_.touch_fingers = frame.count;
+    if (touch_down_) {
+      // The first point only: a palm resting on the glass must not act.
+      const util::TouchXY xy =
+          util::MapTouchPoint(frame.points[0].x, frame.points[0].y, mapping_);
+      touch_x_ = xy.x;
+      touch_y_ = xy.y;
+      diag_.touch_raw_x = frame.points[0].x;
+      diag_.touch_raw_y = frame.points[0].y;
+      diag_.touch_x = xy.x;
+      diag_.touch_y = xy.y;
+    }
+  } else if (touch_down_ &&
+             static_cast<uint32_t>(now_ms - touch_frame_ms_) >=
+                 app::kTouchStaleMs) {
+    // The bus went quiet mid-gesture (see app::kTouchStaleMs). Let the finger
+    // go: a lift the UI ignores is recoverable, a finger that is never lifted
+    // keeps the device awake until the battery is gone.
+    touch_down_ = false;
+    diag_.touch_fingers = 0;
+  }
+
+  const util::TouchEvent event =
+      tap_.update(touch_down_, touch_x_, touch_y_, now_ms);
+  diag_.touch_down = tap_.down();
+  switch (event) {
+    case util::TouchEvent::kDown:
+      push(hal::InputSource::kTouch, hal::InputAction::kDown, 0, tap_.x(),
+           tap_.y(), now_ms);
+      break;
+    case util::TouchEvent::kTap:
+      ++diag_.touch_tap_count;
+      push(hal::InputSource::kTouch, hal::InputAction::kClick, 0, tap_.x(),
+           tap_.y(), now_ms);
+      break;
+    case util::TouchEvent::kLongPress:
+      ++diag_.long_press_count;
+      push(hal::InputSource::kTouch, hal::InputAction::kLongPress, 0, tap_.x(),
+           tap_.y(), now_ms);
+      break;
+    case util::TouchEvent::kUp:
+      push(hal::InputSource::kTouch, hal::InputAction::kUp, 0, tap_.lastX(),
+           tap_.lastY(), now_ms);
+      break;
+    case util::TouchEvent::kNone:
+    default:
+      // A finger sliding is not an event, but it is activity: without this
+      // the idle timer could sleep the device under a moving finger.
+      if (tap_.down()) last_activity_ms_ = now_ms;
       break;
   }
 }
@@ -131,6 +220,8 @@ void InputManager::poll(uint32_t now_ms) {
   diag_.pulse_position = pulse_.position();
   coalescer_.add(step, now_ms);
 
+  pumpTouch(now_ms);
+
   // Spec section 14: release accumulated detents as one event so a fast spin
   // costs one refresh, not one per detent.
   if (coalescer_.ready(now_ms)) {
@@ -143,8 +234,11 @@ void InputManager::poll(uint32_t now_ms) {
 }
 
 bool InputManager::anyHeld() const {
+  // A finger on the glass counts: it is not a wake-source pin (touch cannot
+  // wake the device yet), but sleeping under a held finger would drop the
+  // gesture the user is in the middle of.
   return !diag_.menu_level || !diag_.exit_level || !diag_.switch_level ||
-         !diag_.encoder_a_level || !diag_.encoder_b_level;
+         !diag_.encoder_a_level || !diag_.encoder_b_level || diag_.touch_down;
 }
 
 }  // namespace drivers

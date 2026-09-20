@@ -18,6 +18,19 @@ constexpr uint16_t kEncoderDebounceMs = 2;   // encoder channels need to be fast
 constexpr uint16_t kLongPressMs = 700;
 constexpr uint16_t kInputPollIntervalMs = 2;
 
+// Touch. The same long-press feel as the buttons, so "hold" means one thing
+// whichever way it is done. The slop is how far a finger may slide and still
+// count as a tap: 24 px is about 1.5 mm on this 800x480 7.5" panel, enough
+// for the wobble of a finger landing and not enough to cross a menu row.
+constexpr uint16_t kTouchLongPressMs = kLongPressMs;
+constexpr uint16_t kTouchSlopPx = 24;
+// The GT911 reports a frame on every scan while a finger is on the glass, so
+// silence this long with a finger supposedly still down means the bus failed
+// mid-gesture, not that the finger is resting. Without this the tracker would
+// believe the finger is down forever, and hal::IInput::anyHeld() would block
+// deep sleep for good -- on a battery device, a flat battery.
+constexpr uint16_t kTouchStaleMs = 750;
+
 // --- rotary coalescing (spec section 14) -----------------------------------
 // Do not repaint until the user has paused this long, or this many detents
 // have accumulated.

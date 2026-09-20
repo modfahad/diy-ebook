@@ -149,6 +149,11 @@ fw 0x1060, res 800x480; taps and drags track, and the point data starts at
 0x814F (confirmed from the `bytes=` log). Still open: the orientation flags.
 It is a separate build and does not touch the product firmware.
 
+The product firmware now reads touch too (architecture.md 5c), so after this
+section passes, flash the normal build and watch the log: `[touch] GT911 at
+0x5D ...` at boot, then `[input] TOUCH click at (x,y)` for each tap. No screen
+reacts to a tap yet -- that is the options menu, still to come.
+
 Wiring first. The touch layer has its own 6-pin ribbon; the CrowPanel has no
 socket for it, so it needs a 6-pin FPC breakout wired to the 2x10 header.
 The ribbon's pin order is from the spec sheet's page 5 drawing; check it there

@@ -11,13 +11,20 @@
 #include <stdint.h>
 
 #include "hal/input.h"
+#include "hal/touch.h"
 #include "util/debouncer.h"
 #include "util/rotary.h"
+#include "util/touch.h"
 
 namespace drivers {
 
 class InputManager : public hal::IInput {
  public:
+  // Optional, and must be called before begin(). Without it the front panel
+  // works exactly as it did before touch existed -- which is also what
+  // happens when the panel is fitted but its GT911 never answers.
+  void attachTouch(hal::ITouchPanel* touch) { touch_ = touch; }
+
   bool begin() override;
   void poll(uint32_t now_ms) override;
   bool nextEvent(hal::InputEvent* out) override;
@@ -33,6 +40,9 @@ class InputManager : public hal::IInput {
             uint32_t now_ms);
   void pumpButton(util::Button& button, hal::InputSource source, bool raw,
                   uint32_t now_ms, uint32_t* click_counter);
+  void pumpTouch(uint32_t now_ms);
+  void push(hal::InputSource source, hal::InputAction action, int16_t delta,
+            int16_t x, int16_t y, uint32_t now_ms);
 
   static constexpr uint8_t kQueueSize = 16;
   hal::InputEvent queue_[kQueueSize];
@@ -46,6 +56,16 @@ class InputManager : public hal::IInput {
   util::Debouncer encoder_b_;
   util::PulseDecoder pulse_;
   util::RotaryCoalescer coalescer_;
+
+  hal::ITouchPanel* touch_ = nullptr;
+  util::TapTracker tap_;
+  util::TouchMapping mapping_;
+  // The last frame's finger, kept because the GT911 only reports a frame
+  // when something changed: between frames the finger is still down.
+  bool touch_down_ = false;
+  int16_t touch_x_ = 0;
+  int16_t touch_y_ = 0;
+  uint32_t touch_frame_ms_ = 0;   // when the last frame arrived
 
   hal::InputDiagnostics diag_;
   uint32_t last_activity_ms_ = 0;

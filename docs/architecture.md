@@ -414,6 +414,43 @@ into the webview. `desktop/app-bridge/README.md` records why: `yauzl` is
 Node-only, `pdfjs-dist` needs its legacy build, and content ids come from a
 synchronous `node:crypto` hash the format and the firmware both pin.
 
+## 5c. Touch: the same queue, one finger
+
+The -T01 panel carries a GT911 capacitive layer on its own ribbon (the pins
+are in `board_crowpanel_579.h`; the bench steps are board-test-checklist.md
+section 11). **Nothing on the glass reacts to it yet** — what exists is the
+input path, built the same shape as every other input:
+
+```
+GT911 over I2C -> drivers::TouchGt911 (hal::ITouchPanel)
+                    -> drivers::InputManager::pumpTouch
+                       -> util::TapTracker          (pure, host-tested)
+                          -> hal::InputEvent{kTouch, kClick|kLongPress, x, y}
+```
+
+Four decisions worth keeping:
+
+- **One queue, not two.** Touch events come off `nextEvent()` beside MENU,
+  EXIT and the wheel, so `lastActivityMs()` and the idle/sleep policy keep
+  working untouched. A parallel touch path would have forked the sleep logic,
+  which is the part of this firmware least able to afford a second copy.
+- **One finger.** The chip reports five; the UI acts on the first. A palm on
+  the glass cannot fire a second action.
+- **Taps, not gestures.** A refresh costs about half a second, so anything
+  wanting continuous feedback — drag-scrolling, swipe-to-page — would feel
+  broken. `util::TapTracker` classifies down / tap / long press / up, and a
+  finger that slides more than `app::kTouchSlopPx` is none of them (it is
+  still activity, so the device does not sleep under a moving finger).
+- **Additive, never load-bearing.** If the GT911 does not answer — not
+  fitted, not wired, ribbon reversed — `begin()` logs it once and the front
+  panel behaves exactly as it always has. The buttons are the primary input;
+  touch is the addition.
+
+The touch layer draws 8 mA awake against 100 µA idle, which matters for a
+battery this device does not have a divider for yet. Powering it down with
+the screen, and waking on its INT line (RTC-capable, so it can), are both
+open — see pending.md.
+
 ## 6. Storage layout
 
 Committed now (spec sections 15/16) so later milestones do not each invent

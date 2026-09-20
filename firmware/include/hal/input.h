@@ -1,4 +1,4 @@
-// input.h -- user input abstraction (rotary encoder + MENU + EXIT).
+// input.h -- user input abstraction (rotary encoder + MENU + EXIT + touch).
 //
 // The UI never reads a GPIO. It pulls debounced, decoded events out of a
 // queue, which is what lets Phase 2/3 screens be written and tested without
@@ -16,13 +16,14 @@ enum class InputSource : uint8_t {
   kExit,
   kEncoderSwitch,
   kEncoder,
+  kTouch,        // the panel's GT911 layer; x/y carry the spot
 };
 
 enum class InputAction : uint8_t {
   kNone = 0,
   kDown,
   kUp,
-  kClick,
+  kClick,      // a button press, or a tap that did not slide (kTouch)
   kLongPress,
   kRotate,
 };
@@ -31,6 +32,11 @@ struct InputEvent {
   InputSource source = InputSource::kNone;
   InputAction action = InputAction::kNone;
   int16_t delta = 0;          // signed detents, kRotate only (+ = clockwise)
+  // Where the finger was, in DISPLAY pixels, kTouch only. For a tap this is
+  // where it landed, not where it lifted. Meaningless for every other source,
+  // which leaves them 0.
+  int16_t x = 0;
+  int16_t y = 0;
   uint32_t timestamp_ms = 0;
 };
 
@@ -49,6 +55,17 @@ struct InputDiagnostics {
 
   int32_t pulse_position = 0;       // decoded by the independent-pulse decoder
   uint32_t edge_count = 0;          // total A/B edges seen
+
+  // Touch, for the self-test screen. touch_present false means the GT911
+  // never answered -- the buttons are unaffected either way.
+  bool touch_present = false;
+  bool touch_down = false;
+  uint8_t touch_fingers = 0;        // fingers in the last frame
+  uint32_t touch_tap_count = 0;     // taps classified since begin()
+  int16_t touch_x = 0;              // last position, in display pixels
+  int16_t touch_y = 0;
+  uint16_t touch_raw_x = 0;         // the same point as the chip reported it
+  uint16_t touch_raw_y = 0;
 };
 
 class IInput {

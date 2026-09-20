@@ -172,18 +172,30 @@ sending many to the device (desktop/README.md, android.md). **None of the
 three has been run yet.** What is left is installing them and the checks
 below.
 
-**Touch (2026-09-19):** the panel is the -T01 version, with a GT911
-capacitive touch layer on its own 6-pin ribbon. `env:touch_test`
-(`firmware/src/touch_test.cpp`) is a separate bring-up build: it finds the
-chip, finds the touch orientation and draws what the finger does.
-**Run on the board 2026-09-19:** the GT911 answers at 0x5D (id "911", fw
-0x1060, 800x480), taps and drags track, and the point data starts at 0x814F.
-The wiring is GPIO 15/16/17/18 per the board header. Still to settle: the
-orientation flags (tap each numbered box), and a few I2C read errors right
-after the first refresh -- the bus has only the ESP32's internal pull-ups, so
-add 4.7k to 3V3 or drop to 100 kHz if they persist.
-Steps: board-test-checklist.md section 11. The product firmware does not use
-touch yet.
+**Touch (2026-09-19, driver 2026-09-20):** the panel is the -T01 version,
+with a GT911 capacitive touch layer on its own 6-pin ribbon.
+
+- **Run on the board 2026-09-19** with `env:touch_test`
+  (`firmware/src/touch_test.cpp`): the GT911 answers at 0x5D (id "911", fw
+  0x1060, 800x480), taps and drags track, and **the point data starts at
+  0x814F** -- the one thing the driver could not settle without hardware. The
+  wiring is GPIO 15/16/17/18 per the board header, and the ribbon pin order
+  off the spec sheet's page 5 drawing is right. Steps:
+  board-test-checklist.md section 11.
+- The product firmware now *reads* touch: `drivers::TouchGt911` ->
+  `drivers::InputManager` -> `hal::InputEvent{kTouch, ...}`, with the tap and
+  mapping logic host-tested in `util/touch.h` (architecture.md 5c).
+- **Still to settle on the board:** the three orientation flags -- which is
+  now what `ui::SetupScreen` is for (architecture.md 5e), so it is eight
+  presses on the device rather than eight reflashes -- and a few I2C read
+  errors right after the first refresh: the bus has only the ESP32's internal
+  pull-ups, so add 4.7k to 3V3 or drop to 100 kHz if they persist.
+- **The driver, the menu and the setup screen have not been compiled** (Smart
+  App Control blocks every compiler on the Windows PC) and have not run on the
+  board. First compile and the new host tests are a Mac job:
+  `python firmware/scripts/run_host_tests.py` and `pio run -d firmware`.
+- Not done, deliberately: powering the touch layer down with the screen
+  (8 mA awake vs 100 uA idle) and waking the device on its INT line.
 
 **Smart App Control is on on this PC**, and it blocks every unsigned native
 binary a local build needs: `rustc`, Tauri's CLI, Rollup's native module and

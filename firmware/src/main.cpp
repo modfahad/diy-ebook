@@ -34,6 +34,7 @@
 #include "drivers/power_manager.h"
 #include "drivers/sd_storage.h"
 #include "drivers/system_clock.h"
+#include "drivers/touch_gt911.h"
 #include "hal/display.h"
 #include "hal/input.h"
 #include "hal/power.h"
@@ -71,6 +72,10 @@ drivers::Epd750Display g_display;
 drivers::SdStorage g_storage;
 drivers::SystemClock g_clock;
 drivers::InputManager g_input;
+// The panel's touch layer. Additive: if the GT911 does not answer -- not
+// fitted, not wired, ribbon the wrong way round -- begin() says so once and
+// the front panel behaves exactly as it always has.
+drivers::TouchGt911 g_touch;
 util::IdlePolicy g_idle;
 ui::SelfTestState g_state;
 
@@ -2600,6 +2605,7 @@ const char* InputSourceName(hal::InputSource source) {
     case hal::InputSource::kExit:          return "EXIT";
     case hal::InputSource::kEncoderSwitch: return "OK";
     case hal::InputSource::kEncoder:       return "WHEEL";
+    case hal::InputSource::kTouch:         return "TOUCH";
     default:                               return "?";
   }
 }
@@ -2609,6 +2615,8 @@ const char* InputActionName(hal::InputAction action) {
     case hal::InputAction::kClick:     return "click";
     case hal::InputAction::kLongPress: return "long";
     case hal::InputAction::kRotate:    return "rotate";
+    case hal::InputAction::kDown:      return "down";
+    case hal::InputAction::kUp:        return "up";
     default:                           return "?";
   }
 }
@@ -3054,6 +3062,7 @@ void setup() {
   ++g_real_wake_count;  // see its declaration -- excludes the kTimer bail-out above
 
   // Input first: we want to know which pin is held before anything else runs.
+  g_input.attachTouch(&g_touch);
   g_input.begin();
   SampleBattery();  // opportunistic: keeps the displayed % fresh on a real wake
 
