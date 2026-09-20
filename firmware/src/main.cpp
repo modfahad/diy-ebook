@@ -67,6 +67,7 @@
 #include "util/battery.h"
 #include "util/idle_policy.h"
 #include "util/screen_setup.h"
+#include "util/touch.h"
 
 namespace {
 
@@ -3048,6 +3049,128 @@ bool HandleMenuEvent(const hal::InputEvent& ev) {
   return true;
 }
 
+// One wheel detent's worth of "next"/"previous", per screen. Extracted from
+// HandleEvent so that a tap on a page edge turns the page by exactly this
+// path rather than a second copy of it -- these clamps and surah-boundary
+// rules were settled on real hardware and there should only ever be one of
+// them.
+void HandleRotate(int16_t delta) {
+  g_seen_rotary = true;
+  g_counter += delta;
+  if (g_screen_mode == ScreenMode::kLibrary) {
+    MoveLibrarySelection(delta);
+  } else if (g_screen_mode == ScreenMode::kBookmarks) {
+    const int32_t total = ui::BookmarksScreen::rowCount(g_bookmarks_state);
+    int32_t next = static_cast<int32_t>(g_bookmarks_selected) + delta;
+    if (next >= total) next = total - 1;
+    if (next < 0) next = 0;
+    if (static_cast<uint16_t>(next) != g_bookmarks_selected) {
+      g_bookmarks_selected = static_cast<uint16_t>(next);
+      g_bookmarks_status[0] = 0;
+      g_dirty = true;
+    }
+  } else if (g_screen_mode == ScreenMode::kPages && g_page_jump_mode) {
+    int64_t target = static_cast<int64_t>(g_page_jump_target) +
+                     static_cast<int64_t>(delta) * ui::kPageJumpStep;
+    if (target < 0) target = 0;
+    if (g_page_count > 0 && target > static_cast<int64_t>(g_page_count) - 1) {
+      target = static_cast<int64_t>(g_page_count) - 1;
+    }
+    if (static_cast<uint32_t>(target) != g_page_jump_target) {
+      g_page_jump_target = static_cast<uint32_t>(target);
+      g_dirty = true;
+    }
+  } else if (g_screen_mode == ScreenMode::kPages) {
+    int64_t next = static_cast<int64_t>(g_page_index) + delta;
+    if (next < 0) next = 0;
+    if (g_page_count > 0 && next > static_cast<int64_t>(g_page_count) - 1) {
+      next = static_cast<int64_t>(g_page_count) - 1;
+    }
+    if (static_cast<uint32_t>(next) != g_page_index) {
+      g_page_index = static_cast<uint32_t>(next);
+      g_page_resume_index = g_page_index;
+      g_page_progress_dirty = true;
+      g_page_turn_ms = millis();
+      g_dirty = true;
+    }
+  } else if (g_screen_mode == ScreenMode::kReader && g_reader_is_translation) {
+    g_reader_notice[0] = 0;
+    // Past the last page of a surah into the next one, and back.
+    const int32_t last = static_cast<int32_t>(g_book_pager.pageCount());
+    int32_t next = static_cast<int32_t>(g_book_page) + delta;
+    if (next > last && g_trans_surah < g_trans_surah_count) {
+      ShowTranslationSurah(static_cast<uint16_t>(g_trans_surah + 1), false);
+    } else if (next < 1 && g_trans_surah > 1 && g_trans_surah_count > 0) {
+      ShowTranslationSurah(static_cast<uint16_t>(g_trans_surah - 1), true);
+    } else {
+      if (next < 1) next = 1;
+      if (next > last) next = last;
+      if (static_cast<uint16_t>(next) != g_book_page) {
+        g_book_page = static_cast<uint16_t>(next);
+        g_dirty = true;
+      }
+    }
+  } else if (g_screen_mode == ScreenMode::kReader) {
+    g_reader_notice[0] = 0;
+    const int32_t last = static_cast<int32_t>(g_book_pager.pageCount());
+    int32_t next = static_cast<int32_t>(g_book_page) + delta;
+    if (next < 1) next = 1;
+    if (next > last) next = last;
+    if (static_cast<uint16_t>(next) != g_book_page) {
+      g_book_page = static_cast<uint16_t>(next);
+      g_dirty = true;
+    }
+  } else if (g_screen_mode == ScreenMode::kQuran) {
+    // One detent, one screen. There is no page *count* to clamp against:
+    // where a screen ends depends on measured glyph widths, so the only
+    // way to know is to have drawn it. Forward uses what the last
+    // render() reported; backward comes off the history stack.
+    if (delta > 0) {
+      QuranPageForward(g_quran_next_ayah_index);
+    } else if (delta < 0) {
+      QuranPageBack();
+    }
+  } else if (g_screen_mode == ScreenMode::kSurahPicker) {
+    MoveSurahPickerSelection(delta);
+  } else if (g_screen_mode == ScreenMode::kSelfTest) {
+    // The self-test screen displays the raw counter, so every detent
+    // is a real change there. The home screen shows nothing the wheel
+    // changes.
+    g_dirty = true;
+  }
+}
+
+// Where a tap landed, and what that means on this screen. Taps only ever do
+// what a button already does: open the highlighted thing, or turn a page.
+void HandleTouchTap(int16_t x, int16_t y) {
+  switch (g_screen_mode) {
+    case ScreenMode::kLibrary: {
+      const int32_t row = ui::LibraryScreen::rowAt(g_library_state, x, y);
+      if (row < 0) break;
+      // Opening on the first tap, not selecting and waiting for a second:
+      // every extra step here is another half-second refresh, and EXIT
+      // undoes a mis-tap.
+      g_library_selected = static_cast<uint16_t>(row);
+      RefreshLibraryState();
+      HandleLibraryOk();
+      break;
+    }
+
+    case ScreenMode::kReader:
+    case ScreenMode::kPages:
+    case ScreenMode::kQuran: {
+      const int8_t delta =
+          util::PageTapDelta(x, board::kWidth, app::kTouchPageEdgePx);
+      if (delta != 0) HandleRotate(delta);
+      break;
+    }
+
+    default:
+      // Every other screen is driven by the wheel and the buttons for now.
+      break;
+  }
+}
+
 void HandleEvent(const hal::InputEvent& ev) {
   if (ev.source == hal::InputSource::kTouch) {
     drivers::Logf("[input] TOUCH %s at (%d,%d)\n", InputActionName(ev.action),
@@ -3272,90 +3395,15 @@ void HandleEvent(const hal::InputEvent& ev) {
 
     case hal::InputSource::kEncoder:
       if (ev.action == hal::InputAction::kRotate) {
-        g_seen_rotary = true;
-        g_counter += ev.delta;
-        if (g_screen_mode == ScreenMode::kLibrary) {
-          MoveLibrarySelection(ev.delta);
-        } else if (g_screen_mode == ScreenMode::kBookmarks) {
-          const int32_t total = ui::BookmarksScreen::rowCount(g_bookmarks_state);
-          int32_t next = static_cast<int32_t>(g_bookmarks_selected) + ev.delta;
-          if (next >= total) next = total - 1;
-          if (next < 0) next = 0;
-          if (static_cast<uint16_t>(next) != g_bookmarks_selected) {
-            g_bookmarks_selected = static_cast<uint16_t>(next);
-            g_bookmarks_status[0] = 0;
-            g_dirty = true;
-          }
-        } else if (g_screen_mode == ScreenMode::kPages && g_page_jump_mode) {
-          int64_t target = static_cast<int64_t>(g_page_jump_target) +
-                           static_cast<int64_t>(ev.delta) * ui::kPageJumpStep;
-          if (target < 0) target = 0;
-          if (g_page_count > 0 && target > static_cast<int64_t>(g_page_count) - 1) {
-            target = static_cast<int64_t>(g_page_count) - 1;
-          }
-          if (static_cast<uint32_t>(target) != g_page_jump_target) {
-            g_page_jump_target = static_cast<uint32_t>(target);
-            g_dirty = true;
-          }
-        } else if (g_screen_mode == ScreenMode::kPages) {
-          int64_t next = static_cast<int64_t>(g_page_index) + ev.delta;
-          if (next < 0) next = 0;
-          if (g_page_count > 0 && next > static_cast<int64_t>(g_page_count) - 1) {
-            next = static_cast<int64_t>(g_page_count) - 1;
-          }
-          if (static_cast<uint32_t>(next) != g_page_index) {
-            g_page_index = static_cast<uint32_t>(next);
-            g_page_resume_index = g_page_index;
-            g_page_progress_dirty = true;
-            g_page_turn_ms = millis();
-            g_dirty = true;
-          }
-        } else if (g_screen_mode == ScreenMode::kReader && g_reader_is_translation) {
-          g_reader_notice[0] = 0;
-          // Past the last page of a surah into the next one, and back.
-          const int32_t last = static_cast<int32_t>(g_book_pager.pageCount());
-          int32_t next = static_cast<int32_t>(g_book_page) + ev.delta;
-          if (next > last && g_trans_surah < g_trans_surah_count) {
-            ShowTranslationSurah(static_cast<uint16_t>(g_trans_surah + 1), false);
-          } else if (next < 1 && g_trans_surah > 1 && g_trans_surah_count > 0) {
-            ShowTranslationSurah(static_cast<uint16_t>(g_trans_surah - 1), true);
-          } else {
-            if (next < 1) next = 1;
-            if (next > last) next = last;
-            if (static_cast<uint16_t>(next) != g_book_page) {
-              g_book_page = static_cast<uint16_t>(next);
-              g_dirty = true;
-            }
-          }
-        } else if (g_screen_mode == ScreenMode::kReader) {
-          g_reader_notice[0] = 0;
-          const int32_t last = static_cast<int32_t>(g_book_pager.pageCount());
-          int32_t next = static_cast<int32_t>(g_book_page) + ev.delta;
-          if (next < 1) next = 1;
-          if (next > last) next = last;
-          if (static_cast<uint16_t>(next) != g_book_page) {
-            g_book_page = static_cast<uint16_t>(next);
-            g_dirty = true;
-          }
-        } else if (g_screen_mode == ScreenMode::kQuran) {
-          // One detent, one screen. There is no page *count* to clamp against:
-          // where a screen ends depends on measured glyph widths, so the only
-          // way to know is to have drawn it. Forward uses what the last
-          // render() reported; backward comes off the history stack.
-          if (ev.delta > 0) {
-            QuranPageForward(g_quran_next_ayah_index);
-          } else if (ev.delta < 0) {
-            QuranPageBack();
-          }
-        } else if (g_screen_mode == ScreenMode::kSurahPicker) {
-          MoveSurahPickerSelection(ev.delta);
-        } else if (g_screen_mode == ScreenMode::kSelfTest) {
-          // The self-test screen displays the raw counter, so every detent
-          // is a real change there. The home screen shows nothing the wheel
-          // changes.
-          g_dirty = true;
-        }
+        HandleRotate(ev.delta);
       }
+      break;
+
+    case hal::InputSource::kTouch:
+      // A tap acts where the finger landed; a hold is the options menu, and
+      // that is handled by the button path so that resting a thumb on the
+      // glass while reading cannot open it.
+      if (ev.action == hal::InputAction::kClick) HandleTouchTap(ev.x, ev.y);
       break;
 
     default:

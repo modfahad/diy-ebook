@@ -825,6 +825,50 @@ void test_screen_setup_tolerates_hand_editing() {
   TEST_ASSERT_EQUAL_UINT8(6, with_extra.touch_orientation);
 }
 
+
+// ---------------------------------------------------------------------------
+// Page-turn edges (util::PageTapDelta)
+// ---------------------------------------------------------------------------
+
+void test_page_tap_edges_turn_and_the_middle_does_not() {
+  const uint16_t w = 800;
+  const uint16_t edge = 240;
+
+  TEST_ASSERT_EQUAL_INT8(-1, util::PageTapDelta(0, w, edge));
+  TEST_ASSERT_EQUAL_INT8(-1, util::PageTapDelta(239, w, edge));
+  TEST_ASSERT_EQUAL_INT8(1, util::PageTapDelta(560, w, edge));
+  TEST_ASSERT_EQUAL_INT8(1, util::PageTapDelta(799, w, edge));
+
+  // The band a thumb rests in while holding the device: a page turn costs
+  // half a second and the reader's place, so it must do nothing.
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(240, w, edge));
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(400, w, edge));
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(559, w, edge));
+}
+
+void test_page_tap_ignores_nonsense_instead_of_guessing() {
+  // Off the panel, or a mapping that produced something impossible.
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(-1, 800, 240));
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(800, 800, 240));
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(5000, 800, 240));
+
+  // Degenerate settings: no width, no edge, or edges so wide they would
+  // overlap and leave no middle at all.
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(10, 0, 240));
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(10, 800, 0));
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(10, 800, 400));
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(790, 800, 500));
+}
+
+void test_page_tap_edges_are_the_configured_width() {
+  // The constant is policy; the geometry has to follow it, not a hardcoded
+  // third of the screen.
+  TEST_ASSERT_EQUAL_INT8(-1, util::PageTapDelta(99, 800, 100));
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(100, 800, 100));
+  TEST_ASSERT_EQUAL_INT8(0, util::PageTapDelta(699, 800, 100));
+  TEST_ASSERT_EQUAL_INT8(1, util::PageTapDelta(700, 800, 100));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
 
@@ -891,6 +935,10 @@ int main(int, char**) {
   RUN_TEST(test_screen_setup_flags_unpack_the_way_the_mapping_expects);
   RUN_TEST(test_screen_setup_keeps_defaults_when_the_file_is_rubbish);
   RUN_TEST(test_screen_setup_tolerates_hand_editing);
+
+  RUN_TEST(test_page_tap_edges_turn_and_the_middle_does_not);
+  RUN_TEST(test_page_tap_ignores_nonsense_instead_of_guessing);
+  RUN_TEST(test_page_tap_edges_are_the_configured_width);
 
   return UNITY_END();
 }

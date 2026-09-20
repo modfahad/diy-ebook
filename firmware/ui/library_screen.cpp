@@ -388,6 +388,55 @@ void DrawShelf(gfx::Canvas& canvas, const LibraryState& state) {
 
 }  // namespace
 
+int32_t LibraryScreen::rowAt(const LibraryState& state, int16_t x, int16_t y) {
+  const uint16_t total = rowCount(state);
+  if (total == 0) return -1;
+
+  // The top level is tiles, not rows -- and it is the screen the device
+  // opens on, so getting this branch wrong would be the first thing a finger
+  // discovered. tileRect() is the same geometry DrawTile() lays out with.
+  if (state.view == LibraryView::kCategories) {
+    for (uint16_t row = 0; row < total; ++row) {
+      int tx = 0;
+      int ty = 0;
+      int tw = 0;
+      int th = 0;
+      tileRect(row, &tx, &ty, &tw, &th);
+      if (x >= tx && x < tx + tw && y >= ty && y < ty + th) {
+        return static_cast<int32_t>(row);
+      }
+    }
+    return -1;
+  }
+
+  if (isShelf(state)) {
+    const uint16_t start = shelfPageStart(state);
+    for (uint8_t slot = 0; slot < kLibraryShelfPageTiles; ++slot) {
+      const uint16_t row = static_cast<uint16_t>(start + slot);
+      if (row >= total) break;
+      int cover_x = 0;
+      int cover_y = 0;
+      shelfCoverRect(slot, &cover_x, &cover_y);
+      // The tile, not just the cover: the title underneath reads as part of
+      // the same thing, so it is part of the target.
+      const int tile_x = cover_x - (kShelfPitchX - kShelfCoverW) / 2;
+      const int tile_bottom = cover_y + kShelfCoverH + 9 + kShelfTitleBoxH;
+      if (x >= tile_x && x < tile_x + kShelfPitchX && y >= cover_y &&
+          y < tile_bottom) {
+        return static_cast<int32_t>(row);
+      }
+    }
+    return -1;
+  }
+
+  if (y < kRowTop || y >= kListBottom) return -1;
+  if (x < kRowLeftX - 14 || x >= kRuleX + kRuleW) return -1;
+  const int32_t visible = (y - kRowTop) / kRowStep;
+  const int32_t row = static_cast<int32_t>(state.scroll_top) + visible;
+  if (row < 0 || row >= static_cast<int32_t>(total)) return -1;
+  return row;
+}
+
 bool LibraryScreen::isShelf(const LibraryState& state) {
   return state.view == LibraryView::kItems &&
          state.category == static_cast<uint16_t>(qpk::PackageType::kBook);

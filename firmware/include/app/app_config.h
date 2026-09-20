@@ -30,6 +30,10 @@ constexpr uint16_t kTouchSlopPx = 24;
 // believe the finger is down forever, and hal::IInput::anyHeld() would block
 // deep sleep for good -- on a battery device, a flat battery.
 constexpr uint16_t kTouchStaleMs = 750;
+// Tapping the left or right edge of a reading screen turns the page. 240 px
+// of an 800 px panel each side leaves a 320 px band down the middle that does
+// nothing, for the thumb of whoever is holding it.
+constexpr uint16_t kTouchPageEdgePx = 240;
 
 // --- rotary coalescing (spec section 14) -----------------------------------
 // Do not repaint until the user has paused this long, or this many detents

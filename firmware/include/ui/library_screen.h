@@ -142,6 +142,13 @@ class LibraryScreen {
   /** True when the current view is the Books shelf rather than a list. */
   static bool isShelf(const LibraryState& state);
 
+  /**
+   * Which row a tap at (x, y) is on, or -1 for none. Display pixels. Covers
+   * both shapes this screen takes: the list of rows, and the shelf of book
+   * covers, where the whole tile including its title counts as the target.
+   */
+  static int32_t rowAt(const LibraryState& state, int16_t x, int16_t y);
+
   /** The first row on the shelf page that holds `selected`. */
   static uint16_t shelfPageStart(const LibraryState& state);
 

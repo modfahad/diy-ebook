@@ -1773,6 +1773,131 @@ void test_menu_offers_the_setup_screen_where_it_can_be_reached() {
   TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kBack));
 }
 
+
+// ---------------------------------------------------------------------------
+// Which library row a finger is on (ui::LibraryScreen::rowAt)
+// ---------------------------------------------------------------------------
+
+void test_library_row_at_maps_list_rows_including_the_scroll_offset() {
+  net::LibraryIndex index;
+  for (int i = 1; i <= 20; ++i) {
+    index.upsert(MakeEntry(static_cast<uint8_t>(i), qpk::PackageType::kQuran,
+                           "A Package"));
+  }
+  ui::LibraryState state;
+  state.index = &index;
+  state.view = ui::LibraryView::kItems;
+  state.category = static_cast<uint16_t>(qpk::PackageType::kQuran);
+
+  // Rows start at y = 84 with a 28 px pitch (library_screen.cpp).
+  TEST_ASSERT_EQUAL_INT32(0, ui::LibraryScreen::rowAt(state, 300, 84));
+  TEST_ASSERT_EQUAL_INT32(0, ui::LibraryScreen::rowAt(state, 300, 111));
+  TEST_ASSERT_EQUAL_INT32(1, ui::LibraryScreen::rowAt(state, 300, 112));
+
+  // Scrolled: the same place on the glass is a different row, which is the
+  // whole reason this cannot be a plain division at the call site.
+  state.scroll_top = 5;
+  TEST_ASSERT_EQUAL_INT32(5, ui::LibraryScreen::rowAt(state, 300, 84));
+  TEST_ASSERT_EQUAL_INT32(6, ui::LibraryScreen::rowAt(state, 300, 112));
+}
+
+void test_library_row_at_rejects_the_header_footer_and_empty_space() {
+  net::LibraryIndex index;
+  index.upsert(MakeEntry(1, qpk::PackageType::kQuran, "The Holy Quran"));
+  ui::LibraryState state;
+  state.index = &index;
+  state.view = ui::LibraryView::kItems;
+  state.category = static_cast<uint16_t>(qpk::PackageType::kQuran);
+
+  TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(state, 300, 40));   // title
+  TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(state, 300, 460));  // footer
+  TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(state, 5, 90));     // margin
+  TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(state, 790, 90));
+
+  // Below the last real row: 2 rows here (the package and Back), so the
+  // third row's worth of glass is empty and must not open anything.
+  TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(state, 300, 84 + 2 * 28));
+}
+
+void test_library_row_at_hits_shelf_tiles_including_their_titles() {
+  net::LibraryIndex index;
+  for (int i = 1; i <= 6; ++i) {
+    index.upsert(MakeEntry(static_cast<uint8_t>(i), qpk::PackageType::kBook,
+                           "A Book"));
+  }
+  ui::LibraryState state;
+  state.index = &index;
+  state.view = ui::LibraryView::kItems;
+  state.category = static_cast<uint16_t>(qpk::PackageType::kBook);
+  TEST_ASSERT_TRUE(ui::LibraryScreen::isShelf(state));
+
+  int x = 0;
+  int y = 0;
+  ui::LibraryScreen::shelfCoverRect(0, &x, &y);
+  const uint16_t start = ui::LibraryScreen::shelfPageStart(state);
+
+  // The cover itself...
+  TEST_ASSERT_EQUAL_INT32(start, ui::LibraryScreen::rowAt(
+                                     state, static_cast<int16_t>(x + 10),
+                                     static_cast<int16_t>(y + 10)));
+  // ...and the title strip under it, which reads as part of the same tile.
+  TEST_ASSERT_EQUAL_INT32(start, ui::LibraryScreen::rowAt(
+                                     state, static_cast<int16_t>(x + 10),
+                                     static_cast<int16_t>(y + 150)));
+
+  int x1 = 0;
+  int y1 = 0;
+  ui::LibraryScreen::shelfCoverRect(1, &x1, &y1);
+  const int32_t second = ui::LibraryScreen::rowAt(state, static_cast<int16_t>(x1 + 10),
+                                                  static_cast<int16_t>(y1 + 10));
+  TEST_ASSERT_EQUAL_INT32(start + 1, second);
+
+  // Above the shelf: the header, not a tile.
+  TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(state, static_cast<int16_t>(x + 10), 20));
+}
+
+void test_library_row_at_hits_the_home_tiles() {
+  // The screen the device opens on, and the one place a wrong branch would
+  // be found first: the top level is tiles, not 28 px rows.
+  net::LibraryIndex index;
+  index.upsert(MakeEntry(1, qpk::PackageType::kBook, "For Bushra"));
+  ui::LibraryState state;
+  state.index = &index;
+  state.view = ui::LibraryView::kCategories;
+
+  const uint16_t total = ui::LibraryScreen::rowCount(state);
+  TEST_ASSERT_EQUAL_UINT16(ui::kLibraryHomeTileCount, total);
+
+  for (uint16_t row = 0; row < total; ++row) {
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+    ui::LibraryScreen::tileRect(row, &x, &y, &w, &h);
+    // A finger in the middle of a tile hits that tile and no other.
+    const int16_t cx = static_cast<int16_t>(x + w / 2);
+    const int16_t cy = static_cast<int16_t>(y + h / 2);
+    TEST_ASSERT_EQUAL_INT32(row, ui::LibraryScreen::rowAt(state, cx, cy));
+    // ...and the corners belong to it too.
+    TEST_ASSERT_EQUAL_INT32(row, ui::LibraryScreen::rowAt(
+                                     state, static_cast<int16_t>(x),
+                                     static_cast<int16_t>(y)));
+    TEST_ASSERT_EQUAL_INT32(row, ui::LibraryScreen::rowAt(
+                                     state, static_cast<int16_t>(x + w - 1),
+                                     static_cast<int16_t>(y + h - 1)));
+  }
+
+  // The header above the tiles is not a tile.
+  TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(state, 400, 20));
+}
+
+void test_library_row_at_is_minus_one_when_there_is_nothing_to_hit() {
+  ui::LibraryState empty;  // no index at all
+  empty.view = ui::LibraryView::kItems;
+  empty.category = static_cast<uint16_t>(qpk::PackageType::kQuran);
+  TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(empty, 300, 90));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_surah_picker_row_count_is_zero_with_no_package_open);
@@ -1847,6 +1972,12 @@ int main(int, char**) {
   RUN_TEST(test_setup_turning_the_picture_forgets_the_old_hits_too);
   RUN_TEST(test_setup_renders_inside_the_panel);
   RUN_TEST(test_menu_offers_the_setup_screen_where_it_can_be_reached);
+
+  RUN_TEST(test_library_row_at_maps_list_rows_including_the_scroll_offset);
+  RUN_TEST(test_library_row_at_rejects_the_header_footer_and_empty_space);
+  RUN_TEST(test_library_row_at_hits_shelf_tiles_including_their_titles);
+  RUN_TEST(test_library_row_at_hits_the_home_tiles);
+  RUN_TEST(test_library_row_at_is_minus_one_when_there_is_nothing_to_hit);
 
   return UNITY_END();
 }

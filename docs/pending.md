@@ -204,8 +204,11 @@ longer means bookmark / delete / text size / transfer mode by screen, and
 **hold EXIT no longer factory resets** -- that is a row on the hardware test
 screen's menu now, and it asks first. 10 new host tests in `test_ui`.
 **Not compiled and not run on hardware**, same reason as everything above.
-Still open: nothing on a reading screen responds to a tap yet (page turns,
-library rows, a menu corner) -- that is the next step.
+Taps now act: a library row or shelf tile opens (`ui::LibraryScreen::rowAt`),
+and the left/right edges of the book, picture-book and Quran readers turn the
+page through the wheel's own `HandleRotate()` (architecture.md 5d).
+Still open: the bookmarks list and the surah picker are not tappable yet, and
+a hold on the glass deliberately does nothing.
 
 **Screen and touch setup (2026-09-20).** The touch orientation and the
 picture's rotation are found on the device now, not by reflashing:

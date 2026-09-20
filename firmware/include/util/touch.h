@@ -72,6 +72,26 @@ inline TouchXY MapTouchPoint(uint16_t raw_x, uint16_t raw_y,
   return out;
 }
 
+// Which way a tap on a reading screen turns the page: -1 back, +1 forward,
+// 0 for the band down the middle that does nothing.
+//
+// A middle band, rather than splitting the screen in half, is the whole
+// point: a page turn on this panel costs half a second and the reader is
+// holding the thing, so a thumb resting near the centre must not cost them
+// their place. `edge_px` is how wide each acting edge is.
+inline int8_t PageTapDelta(int16_t x, uint16_t width, uint16_t edge_px) {
+  if (width == 0 || edge_px == 0) return 0;
+  // Overlapping edges would make the middle band vanish; refuse rather than
+  // guess which one wins.
+  if (static_cast<uint32_t>(edge_px) * 2 >= width) return 0;
+  if (x < 0) return 0;
+  if (x < static_cast<int16_t>(edge_px)) return -1;
+  if (x >= static_cast<int16_t>(width - edge_px) && x < static_cast<int16_t>(width)) {
+    return 1;
+  }
+  return 0;
+}
+
 enum class TouchEvent : uint8_t {
   kNone = 0,
   kDown,

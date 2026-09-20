@@ -477,10 +477,29 @@ each is a row where it belongs.
   asks, so ordinary rows stay one press.
 - **Every list can be left.** `AddTail()` always appends "Close this menu",
   and "Sleep now" except in table-clock mode, where the device never sleeps.
-- **`rowAt()` is the touch half**, and the only place a tap currently does
-  anything. Taps on the margins are ignored rather than closing the menu:
-  until the touch orientation is confirmed on real glass, a stray mapping
-  should cost nothing.
+- **`rowAt()` is the touch half.** Taps on the margins are ignored rather
+  than closing the menu: until the touch orientation is confirmed on real
+  glass, a stray mapping should cost nothing.
+
+Taps act on three more screens, and only ever do what a button already does:
+
+- **A library row or shelf tile opens it** (`ui::LibraryScreen::rowAt`,
+  which handles the list and the covers, and includes a tile's title strip
+  because it reads as part of the same thing). One tap opens rather than
+  selecting and waiting for a second: each extra step is another half-second
+  refresh, and EXIT undoes a mis-tap.
+- **The left and right edges of a reading screen turn the page**
+  (`util::PageTapDelta`, `app::kTouchPageEdgePx` = 240 px each side). The
+  320 px band down the middle deliberately does nothing: a page turn costs
+  half a second and the reader's place, and a hand holding the device rests
+  near the centre.
+- **A page turn by tap goes through `HandleRotate()`**, the wheel's own
+  per-screen logic, moved out of `HandleEvent` rather than copied. The clamps,
+  the surah boundaries and the Quran's history stack were settled on real
+  hardware; there should only ever be one of them.
+
+A hold on the glass is deliberately NOT the options menu -- a thumb resting
+while reading would open it. Hold OK does that.
 
 ## 5e. Which way up, and which way round: the setup screen
 

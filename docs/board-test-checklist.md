@@ -216,3 +216,21 @@ touch orientation: it replaces editing `board_crowpanel_579.h` and reflashing.
 | Pull the card and read `/DEVICE/screen.txt` | One line: `rotation=0 touch=5` |
 | With a rotated picture, turn a few book pages | Partial refreshes still look right — rotation touches the window-refresh path |
 | Delete `/DEVICE/screen.txt` and restart | Back to the build-time defaults, log says "(defaults, nothing saved yet)" |
+
+## 14. Tapping to open and to turn pages — added 2026-09-20
+
+**Not compiled and not run yet.** Do section 13 first: these all depend on the
+touch orientation being right.
+
+| Do | Expect |
+|---|---|
+| Tap a tile on the library's front screen (Books, Quran, Device…) | That tile opens. This screen is tiles, not rows — check each one opens what its label says |
+| Tap a row in the Quran or Translations list | It opens, same as highlighting it and pressing OK |
+| Tap a book's cover on the Books shelf | That book opens. Tapping its title underneath does the same |
+| Tap the header or the footer of the library | Nothing happens |
+| Scroll a long list down, then tap the top row | The row you tapped opens — not the one that was there before scrolling |
+| In a book, tap the right-hand edge | Next page |
+| In a book, tap the left-hand edge | Previous page |
+| Tap the middle of the page | **Nothing** — that band is for the hand holding the device |
+| Same three taps in a picture book and in the Quran | Same behaviour; the Quran goes forward and back by screen |
+| Rest a thumb on the glass for a second while reading | Nothing opens. The options menu is hold OK, not hold-on-glass |
