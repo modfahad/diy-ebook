@@ -19,6 +19,9 @@
 //   [GxEPD2]    GxEPD2 src/gdey/GxEPD2_750_GDEY075T7.h
 //   [GD:T01]    good-display.com/product/483.html (GDEY075T7-T01: GT911,
 //               I2C, 6-pin touch FPC, 2.8-3.6 V)
+//   [GD:T01p5]  the same part's spec sheet, page 5 mechanical drawing, read
+//               off the drawing's label positions (it has no pin table):
+//               v4.cecdn.yun300.cn/100001_1909185148/GDEY075T7-T01.pdf
 //
 // Anything still unknown is marked TODO(hw) and MUST NOT be guessed at
 // the call site.
@@ -78,10 +81,9 @@ static_assert(kDisplayRotation == 0 || kDisplayRotation == 2,
 // Touch: the -T01 panel's GT911 capacitive layer  [GD:T01]
 //
 // The touch layer has its own 6-pin FPC, separate from the display's 24-pin
-// one. Spec sheet p.5 (mechanical drawing), all signals 3.3 V:
+// one. Its pin order, all signals 3.3 V  [GD:T01p5]:
 //   1 GND   2 VCC   3 RESET   4 INT   5 SDA   6 SCL
-// Read off the drawing's label positions, not a pin table; check it against
-// the drawing before powering up.
+// Check it against the drawing before powering up.
 // The CrowPanel has no socket for it, so it is hand-wired through an FPC
 // breakout to the 2x10 header.
 //
@@ -92,9 +94,6 @@ static_assert(kDisplayRotation == 0 || kDisplayRotation == 2,
 //
 // GT911 I2C address: 0x5D or 0x14, chosen by INT's level while RST rises.
 // The touch test straps 0x5D and, if nothing answers, re-straps for 0x14.
-//
-// Spec sheet: v4.cecdn.yun300.cn/100001_1909185148/GDEY075T7-T01.pdf
-// (via good-display.com companyfile/1167).
 //
 // TODO(hw): the orientation flags are unknown until touched on the real
 // panel: the touch_test build (src/touch_test.cpp) cycles through all eight
