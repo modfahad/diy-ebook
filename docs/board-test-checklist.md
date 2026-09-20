@@ -257,3 +257,48 @@ touch orientation being right.
 | **Only if INT behaved above:** set `app::kWakeOnTouch = true`, rebuild, sleep it | A tap wakes the device, and the log says `[power] woken by a tap on the glass` |
 | With tap-to-wake on, leave it asleep a minute untouched | It stays asleep. Waking immediately and repeatedly means INT is floating or inverted - turn the flag back off |
 | With tap-to-wake on, measure sleep current again | Higher, by the chip's scanning draw. That is the trade; decide it with a real battery in hand |
+
+## 16. Is a LILYGO T-Energy-S3 worth moving to? - added 2026-09-21
+
+**Not run yet.** A separate board being evaluated: ESP32-S3-WROOM-1, 16MB
+flash, 8MB PSRAM, 18650 holder with charging, battery sense on IO3 - which is
+the one thing the CrowPanel cannot do at all (Elecrow will not say which pin
+senses its battery, so this project has no battery reporting).
+
+`env:tenergy_touch_test` answers one question: does the GT911 talk to it. No
+display in the test on purpose - a panel would be a second variable.
+
+Wire the touch ribbon only (spec sheet page 5 for the pin order; VCC and GND
+reversed kills the chip):
+
+| Touch FPC pin | Signal | T-Energy-S3 |
+|---|---|---|
+| 1 | GND | GND |
+| 2 | VCC | 3V3 (not 5V) |
+| 3 | RESET | GPIO 18 |
+| 4 | INT | GPIO 17 |
+| 5 | SDA | GPIO 8 |
+| 6 | SCL | GPIO 9 |
+
+```bash
+pio run -d firmware -e tenergy_touch_test -t upload && pio device monitor -d firmware -b 115200
+```
+
+| Do | Expect |
+|---|---|
+| Boot | `chip=ESP32-S3`, then `flash=16MB psram=8388608` - proves the board is what it claims |
+| Read the battery line | A plausible cell voltage (~3000-4200 mV with an 18650 in). Wildly wrong or 0 means IO3 is not the divider on this revision |
+| Read the I2C scan | `[i2c] devices: 0x5D` (or 0x14). `none` means wiring or power, not the board |
+| Read the identity line | `GT911 at 0x5D id="911" fw=0x...` - anything else is reported as nonsense and rejected, rather than believed |
+| Tap the glass | `touch n=1 [id=0 (x,y) size=..]` with coordinates that move as your finger moves |
+| Drag a finger | A stream of lines, then `up` on release |
+| Watch the health line every 5 s | `frames` climbing, `i2c_errors` staying near 0. Errors climbing = the same weak-pull-up problem as the CrowPanel; fit 4.7k on SDA and SCL |
+| Watch INT while tapping | `INT went LOW` on touch, `HIGH` on release. That is what tap-to-wake needs, and its polarity is what `app::kWakeOnTouch` is waiting on |
+| Send any character over serial | It re-scans and re-probes without a reset - the quick way to test a suspect ribbon by wiggling it |
+| Different pins? | `-DTOUCH_SDA=.. -DTOUCH_SCL=.. -DTOUCH_INT=.. -DTOUCH_RST=..` at build time, no source edit |
+
+**If this passes**, the move also needs: the panel's 24-pin ribbon (the
+CrowPanel supplies that socket today), its two power rails, the SD card, and
+the five front-panel buttons - all of which are `board_crowpanel_579.h`
+constants and a second board header, not firmware changes.
+
