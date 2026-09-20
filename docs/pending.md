@@ -229,6 +229,36 @@ reads of `board::kDisplayRotation`, two of them in the partial-window and
 restored-frame paths that were verified on real glass -- so check a rotated
 device still does partial refreshes cleanly, not just full ones.
 
+**The Windows PC can compile after all, through WSL -- 2026-09-21.** Smart
+App Control blocks Windows binaries; it does not police the Linux ELF
+toolchain inside a WSL2 VM. Ubuntu 24.04 needed one package
+(`sudo apt install python3.12-venv`; g++ and git were already there), then
+PlatformIO in a venv, and both the firmware and the host tests build and run:
+
+```bash
+python3 -m venv ~/.pio-venv && ~/.pio-venv/bin/pip install platformio
+wsl -d Ubuntu-24.04 -- bash -lc "cd /mnt/d/interview/diy-ebook && ~/.pio-venv/bin/pio run -d firmware"
+wsl -d Ubuntu-24.04 -- bash -lc "cd /mnt/d/interview/diy-ebook && ~/.pio-venv/bin/python firmware/scripts/run_host_tests.py"
+```
+
+Watch out for one trap: inside WSL, `pio` and `pip3` resolve to the *Windows*
+ones through `/mnt/c`, which is the blocked toolchain again. Call the venv's
+binaries by full path. Uploading to the board still needs usbipd-win to pass
+the USB serial device through, or a flash from Windows (esptool is a Python
+script, not a blocked binary).
+
+**First compile of the touch work, same day: it built after two fixes, and
+the host tests found a third.** `util::ScreenSetup` was brace-initialised in
+`main.cpp`, which C++11 refuses for a struct with default member initialisers;
+`run_host_tests.py` had drifted out of step with `platformio.ini`'s native env
+and was missing `storage/bookmarks.cpp`, `reset_log.cpp` and
+`verified_packages.cpp`, so *every* suite failed to link `bookmarks_screen.cpp`
+(pre-existing, nothing to do with touch); and a new test asserted an empty
+library category has nothing to tap when it still has a Back row. **268 host
+tests pass (test_logic 57, test_net 66, test_qpk 72, test_ui 73), and
+`crowpanel_579`, `touch_test` and `grey_test` all build clean.** Still not run
+on the board.
+
 **Smart App Control is on on this PC**, and it blocks every unsigned native
 binary a local build needs: `rustc`, Tauri's CLI, Rollup's native module and
 `hermesc.exe`. So neither app builds or runs from source here; build in CI

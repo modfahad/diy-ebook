@@ -577,18 +577,22 @@ bool g_photo_loaded = false;
 // rebuild. A missing or unreadable file means "use the defaults".
 // Seeded from the board header rather than left at zero: LoadScreenSetup()
 // only runs when the card mounted, and ApplyScreenSetup() runs either way.
-util::ScreenSetup g_screen_setup = {
-    board::kDisplayRotation,
-    static_cast<uint8_t>((board::kTouchSwapXY ? 1 : 0) |
-                         (board::kTouchInvertX ? 2 : 0) |
-                         (board::kTouchInvertY ? 4 : 0)),
-};
-
-void LoadScreenSetup() {
-  g_screen_setup.rotation = board::kDisplayRotation;
-  g_screen_setup.touch_orientation = static_cast<uint8_t>(
+// Not brace-initialised: util::ScreenSetup carries default member
+// initialisers, which stops it being an aggregate under the C++11 this builds
+// with, so a braced list does not compile.
+util::ScreenSetup DefaultScreenSetup() {
+  util::ScreenSetup setup;
+  setup.rotation = board::kDisplayRotation;
+  setup.touch_orientation = static_cast<uint8_t>(
       (board::kTouchSwapXY ? 1 : 0) | (board::kTouchInvertX ? 2 : 0) |
       (board::kTouchInvertY ? 4 : 0));
+  return setup;
+}
+
+util::ScreenSetup g_screen_setup = DefaultScreenSetup();
+
+void LoadScreenSetup() {
+  g_screen_setup = DefaultScreenSetup();
 
   char text[util::kScreenSetupMaxChars + 1] = {0};
   const int32_t n =

@@ -1891,11 +1891,22 @@ void test_library_row_at_hits_the_home_tiles() {
   TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(state, 400, 20));
 }
 
-void test_library_row_at_is_minus_one_when_there_is_nothing_to_hit() {
+void test_library_row_at_in_an_empty_category_still_hits_the_back_row() {
+  // "Empty" is never truly empty: rowCount() is the items plus a Back row
+  // (see test_library_screen_items_row_count_is_count_plus_back), so the
+  // first line of glass is Back and tapping it has to work -- that is the
+  // only way out of an empty category by finger.
   ui::LibraryState empty;  // no index at all
   empty.view = ui::LibraryView::kItems;
   empty.category = static_cast<uint16_t>(qpk::PackageType::kQuran);
-  TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(empty, 300, 90));
+  TEST_ASSERT_EQUAL_UINT16(1, ui::LibraryScreen::rowCount(empty));
+
+  uint16_t ordinal = 0;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(ui::LibraryRow::kBack),
+                        static_cast<int>(ui::LibraryScreen::rowKind(empty, 0, &ordinal)));
+  TEST_ASSERT_EQUAL_INT32(0, ui::LibraryScreen::rowAt(empty, 300, 90));
+  // Below that single row there is nothing.
+  TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(empty, 300, 84 + 28));
 }
 
 
@@ -1905,7 +1916,7 @@ void test_library_row_at_is_minus_one_when_there_is_nothing_to_hit() {
 
 void test_bookmarks_row_at_follows_the_scroll_the_render_used() {
   net::LibraryIndex index;
-  index.upsert(MakeEntry(1, qpk::PackageType::kPageBook, "A Picture Book"));
+  index.upsert(MakeEntry(1, qpk::PackageType::kBook, "A Picture Book"));
   net::Bookmarks marks;
   for (uint32_t i = 0; i < 30; ++i) {
     net::Bookmark mark;
@@ -1945,7 +1956,7 @@ void test_bookmarks_row_at_follows_the_scroll_the_render_used() {
 
 void test_bookmarks_row_at_stops_at_the_last_real_row() {
   net::LibraryIndex index;
-  index.upsert(MakeEntry(1, qpk::PackageType::kPageBook, "A Picture Book"));
+  index.upsert(MakeEntry(1, qpk::PackageType::kBook, "A Picture Book"));
   net::Bookmarks marks;
   net::Bookmark mark;
   memset(mark.content_id, 1, sizeof(mark.content_id));
@@ -2072,7 +2083,7 @@ int main(int, char**) {
   RUN_TEST(test_library_row_at_rejects_the_header_footer_and_empty_space);
   RUN_TEST(test_library_row_at_hits_shelf_tiles_including_their_titles);
   RUN_TEST(test_library_row_at_hits_the_home_tiles);
-  RUN_TEST(test_library_row_at_is_minus_one_when_there_is_nothing_to_hit);
+  RUN_TEST(test_library_row_at_in_an_empty_category_still_hits_the_back_row);
 
   RUN_TEST(test_bookmarks_row_at_follows_the_scroll_the_render_used);
   RUN_TEST(test_bookmarks_row_at_stops_at_the_last_real_row);

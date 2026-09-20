@@ -48,6 +48,9 @@ SHARED_SOURCES = sorted(
     + glob.glob(os.path.join(FIRMWARE, "ui", "*.cpp"))
     + [os.path.join(FIRMWARE, "storage", "library_index.cpp")]
     + [os.path.join(FIRMWARE, "storage", "reading_progress.cpp")]
+    + [os.path.join(FIRMWARE, "storage", "bookmarks.cpp")]
+    + [os.path.join(FIRMWARE, "storage", "reset_log.cpp")]
+    + [os.path.join(FIRMWARE, "storage", "verified_packages.cpp")]
 )
 DEFINES = []
 
