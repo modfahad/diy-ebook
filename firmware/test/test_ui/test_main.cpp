@@ -29,6 +29,7 @@
 #include "qpk/memory_file.h"
 #include "qpk/qpk_reader.h"
 #include "test_qpk/qpk_test_package.h"
+#include "ui/options_menu.h"
 #include "ui/home_screen.h"
 #include "ui/bookmarks_screen.h"
 #include "ui/library_screen.h"
@@ -1378,6 +1379,263 @@ void test_page_image_screen_draws_the_page_number_and_jump_box_upright() {
 void setUp() {}
 void tearDown() {}
 
+
+// ---------------------------------------------------------------------------
+// Options menu (ui/options_menu.h)
+//
+// The menu exists because OK meant something different on every screen and
+// nothing said so. These tests are about the promise that replaced it: every
+// screen offers a named list, nothing destructive happens without a question
+// first, and a finger lands on the row it is over.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+ui::OptionsMenuState BuildFor(ui::MenuScreen screen) {
+  ui::MenuContext context;
+  context.screen = screen;
+  ui::OptionsMenuState state;
+  ui::OptionsMenu::build(context, &state);
+  return state;
+}
+
+bool MenuHas(const ui::OptionsMenuState& state, ui::MenuAction action) {
+  for (uint8_t i = 0; i < state.count; ++i) {
+    if (state.items[i].action == action) return true;
+  }
+  return false;
+}
+
+}  // namespace
+
+void test_menu_every_screen_offers_a_way_out() {
+  const ui::MenuScreen screens[] = {
+      ui::MenuScreen::kHome,   ui::MenuScreen::kLibrary, ui::MenuScreen::kSelfTest,
+      ui::MenuScreen::kReader, ui::MenuScreen::kPages,   ui::MenuScreen::kQuran,
+      ui::MenuScreen::kSurahPicker, ui::MenuScreen::kBookmarks};
+  // Both extremes: nothing available, and every optional row at once. The
+  // library's fullest list reaches kOptionsMaxItems exactly, so the loaded
+  // pass is where a way out would be squeezed off the end.
+  for (int loaded = 0; loaded < 2; ++loaded) {
+    for (ui::MenuScreen screen : screens) {
+      ui::MenuContext context;
+      context.screen = screen;
+      if (loaded != 0) {
+        context.translation = true;
+        context.transfer_on = true;
+        context.page_jump = true;
+        context.has_bookmarks = true;
+        context.bookmark_selected = true;
+        context.library_in_category = true;
+      }
+      ui::OptionsMenuState state;
+      ui::OptionsMenu::build(context, &state);
+
+      TEST_ASSERT_TRUE(state.count > 0);
+      TEST_ASSERT_TRUE(state.count <= ui::kOptionsMaxItems);
+      TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kBack));
+      for (uint8_t i = 0; i < state.count; ++i) {
+        TEST_ASSERT_NOT_NULL(state.items[i].label);
+        TEST_ASSERT_TRUE(state.items[i].label[0] != '\0');
+        TEST_ASSERT_TRUE(state.items[i].action != ui::MenuAction::kNone);
+      }
+    }
+  }
+}
+
+void test_menu_carries_the_actions_that_used_to_be_hidden_holds() {
+  // Hold OK used to bookmark in a book, delete on the bookmarks list and
+  // toggle transfer mode elsewhere. Each is now a row where it belongs.
+  ui::MenuContext reading;
+  reading.screen = ui::MenuScreen::kReader;
+  ui::OptionsMenuState state;
+  ui::OptionsMenu::build(reading, &state);
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kBookmarkHere));
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kTextSize));
+  TEST_ASSERT_FALSE(MenuHas(state, ui::MenuAction::kChooseSurah));
+
+  ui::MenuContext translation = reading;
+  translation.translation = true;
+  ui::OptionsMenu::build(translation, &state);
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kChooseSurah));
+
+  ui::MenuContext bookmarks;
+  bookmarks.screen = ui::MenuScreen::kBookmarks;
+  bookmarks.bookmark_selected = true;
+  ui::OptionsMenu::build(bookmarks, &state);
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kDeleteBookmark));
+
+  // Nothing selected: no delete row to hit by accident.
+  bookmarks.bookmark_selected = false;
+  ui::OptionsMenu::build(bookmarks, &state);
+  TEST_ASSERT_FALSE(MenuHas(state, ui::MenuAction::kDeleteBookmark));
+
+  ui::MenuContext library;
+  library.screen = ui::MenuScreen::kLibrary;
+  ui::OptionsMenu::build(library, &state);
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kTransferMode));
+}
+
+void test_menu_library_rows_name_the_level_they_are_on() {
+  // Two levels: shelves, and the books on one. The row that opens the
+  // highlight has to say which, and only inside a shelf is there a way up.
+  ui::MenuContext context;
+  context.screen = ui::MenuScreen::kLibrary;
+  ui::OptionsMenuState shelves;
+  ui::OptionsMenu::build(context, &shelves);
+  TEST_ASSERT_FALSE(MenuHas(shelves, ui::MenuAction::kLeaveCategory));
+
+  context.library_in_category = true;
+  ui::OptionsMenuState books;
+  ui::OptionsMenu::build(context, &books);
+  TEST_ASSERT_TRUE(MenuHas(books, ui::MenuAction::kLeaveCategory));
+
+  const char* shelf_label = "";
+  const char* book_label = "";
+  for (uint8_t i = 0; i < shelves.count; ++i) {
+    if (shelves.items[i].action == ui::MenuAction::kOpenSelected) {
+      shelf_label = shelves.items[i].label;
+    }
+  }
+  for (uint8_t i = 0; i < books.count; ++i) {
+    if (books.items[i].action == ui::MenuAction::kOpenSelected) {
+      book_label = books.items[i].label;
+    }
+  }
+  TEST_ASSERT_TRUE(strstr(shelf_label, "shelf") != nullptr);
+  TEST_ASSERT_TRUE(strstr(book_label, "book") != nullptr);
+}
+
+void test_menu_transfer_row_says_which_way_it_goes() {
+  ui::MenuContext context;
+  context.screen = ui::MenuScreen::kLibrary;
+  ui::OptionsMenuState off;
+  ui::OptionsMenu::build(context, &off);
+  context.transfer_on = true;
+  ui::OptionsMenuState on;
+  ui::OptionsMenu::build(context, &on);
+
+  const char* off_label = "";
+  const char* on_label = "";
+  for (uint8_t i = 0; i < off.count; ++i) {
+    if (off.items[i].action == ui::MenuAction::kTransferMode) off_label = off.items[i].label;
+  }
+  for (uint8_t i = 0; i < on.count; ++i) {
+    if (on.items[i].action == ui::MenuAction::kTransferMode) on_label = on.items[i].label;
+  }
+  TEST_ASSERT_TRUE(strstr(off_label, "Transfer") != nullptr);
+  TEST_ASSERT_TRUE(strstr(on_label, "Stop") != nullptr);
+}
+
+void test_menu_hides_bookmark_rows_until_there_are_bookmarks() {
+  ui::MenuContext context;
+  context.screen = ui::MenuScreen::kLibrary;
+  ui::OptionsMenuState state;
+  ui::OptionsMenu::build(context, &state);
+  TEST_ASSERT_FALSE(MenuHas(state, ui::MenuAction::kBookmarks));
+  TEST_ASSERT_FALSE(MenuHas(state, ui::MenuAction::kContinueReading));
+
+  context.has_bookmarks = true;
+  ui::OptionsMenu::build(context, &state);
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kBookmarks));
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kContinueReading));
+}
+
+void test_menu_omits_sleep_on_a_device_that_never_sleeps() {
+  ui::MenuContext context;
+  context.screen = ui::MenuScreen::kHome;
+  ui::OptionsMenuState state;
+  ui::OptionsMenu::build(context, &state);
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kSleep));
+
+  context.table_clock = true;
+  ui::OptionsMenu::build(context, &state);
+  TEST_ASSERT_FALSE(MenuHas(state, ui::MenuAction::kSleep));
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kBack));
+}
+
+void test_menu_page_jump_rows_follow_the_mode() {
+  ui::MenuContext context;
+  context.screen = ui::MenuScreen::kPages;
+  ui::OptionsMenuState state;
+  ui::OptionsMenu::build(context, &state);
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kGoToPage));
+  TEST_ASSERT_FALSE(MenuHas(state, ui::MenuAction::kNextChapter));
+
+  context.page_jump = true;
+  ui::OptionsMenu::build(context, &state);
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kNextChapter));
+}
+
+void test_menu_factory_reset_asks_first_and_defaults_to_no() {
+  ui::MenuContext context;
+  context.screen = ui::MenuScreen::kSelfTest;
+  ui::OptionsMenuState state;
+  ui::OptionsMenu::build(context, &state);
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kFactoryReset));
+
+  TEST_ASSERT_TRUE(ui::OptionsMenu::buildConfirm(ui::MenuAction::kFactoryReset, &state));
+  TEST_ASSERT_TRUE(state.confirming);
+  TEST_ASSERT_TRUE(state.question[0] != '\0');
+  // The highlight sits on the harmless row: erasing has to be chosen.
+  TEST_ASSERT_EQUAL(ui::MenuAction::kBack, ui::OptionsMenu::selectedAction(state));
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kFactoryResetConfirm));
+
+  // Nothing else asks: an ordinary row runs straight away.
+  ui::OptionsMenuState untouched = state;
+  TEST_ASSERT_FALSE(ui::OptionsMenu::buildConfirm(ui::MenuAction::kTextSize, &untouched));
+  TEST_ASSERT_TRUE(untouched.confirming);  // left exactly as it was
+}
+
+void test_menu_selection_wraps_both_ways() {
+  ui::OptionsMenuState state = BuildFor(ui::MenuScreen::kSurahPicker);
+  const uint8_t last = static_cast<uint8_t>(state.count - 1);
+
+  state.selected = 0;
+  ui::OptionsMenu::move(&state, -1);
+  TEST_ASSERT_EQUAL_UINT8(last, state.selected);
+  ui::OptionsMenu::move(&state, 1);
+  TEST_ASSERT_EQUAL_UINT8(0, state.selected);
+  // A fast spin of more than a whole list still lands somewhere real.
+  ui::OptionsMenu::move(&state, static_cast<int16_t>(state.count * 3 + 1));
+  TEST_ASSERT_TRUE(state.selected < state.count);
+}
+
+void test_menu_rowAt_finds_the_row_under_a_finger() {
+  const ui::OptionsMenuState state = BuildFor(ui::MenuScreen::kLibrary);
+  // Row geometry (options_menu.cpp): first row at y = 84, 40 px pitch,
+  // x from 24 to 776.
+  TEST_ASSERT_EQUAL_INT(0, ui::OptionsMenu::rowAt(state, 400, 84));
+  TEST_ASSERT_EQUAL_INT(0, ui::OptionsMenu::rowAt(state, 30, 120));
+  TEST_ASSERT_EQUAL_INT(1, ui::OptionsMenu::rowAt(state, 400, 124));
+  TEST_ASSERT_EQUAL_INT(state.count - 1,
+                        ui::OptionsMenu::rowAt(state, 400, 84 + (state.count - 1) * 40));
+
+  // Above the list, below the last row, and off to the sides: nothing.
+  TEST_ASSERT_EQUAL_INT(-1, ui::OptionsMenu::rowAt(state, 400, 40));
+  TEST_ASSERT_EQUAL_INT(-1, ui::OptionsMenu::rowAt(state, 400, 84 + state.count * 40));
+  TEST_ASSERT_EQUAL_INT(-1, ui::OptionsMenu::rowAt(state, 10, 100));
+  TEST_ASSERT_EQUAL_INT(-1, ui::OptionsMenu::rowAt(state, 790, 100));
+}
+
+void test_menu_renders_inside_the_panel() {
+  gfx::Canvas canvas = MakeCanvas();
+
+  ui::MenuContext context;
+  context.screen = ui::MenuScreen::kLibrary;
+  context.has_bookmarks = true;
+  ui::OptionsMenuState state;
+  ui::OptionsMenu::build(context, &state);
+  state.touch_hint = true;
+  ui::OptionsMenu::render(canvas, state);
+  TEST_ASSERT_EQUAL_UINT32(0, canvas.clippedPixels());
+
+  // The confirmation, with its longer subtitle, fits too.
+  ui::OptionsMenu::buildConfirm(ui::MenuAction::kFactoryReset, &state);
+  ui::OptionsMenu::render(canvas, state);
+  TEST_ASSERT_EQUAL_UINT32(0, canvas.clippedPixels());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_surah_picker_row_count_is_zero_with_no_package_open);
@@ -1432,5 +1690,17 @@ int main(int, char**) {
   RUN_TEST(test_bookmarks_screen_rows_places_and_fit);
   RUN_TEST(test_ascii_fold_keeps_translation_text_readable);
   RUN_TEST(test_page_image_screen_ribbon_marks_a_bookmarked_page);
+  RUN_TEST(test_menu_every_screen_offers_a_way_out);
+  RUN_TEST(test_menu_carries_the_actions_that_used_to_be_hidden_holds);
+  RUN_TEST(test_menu_library_rows_name_the_level_they_are_on);
+  RUN_TEST(test_menu_transfer_row_says_which_way_it_goes);
+  RUN_TEST(test_menu_hides_bookmark_rows_until_there_are_bookmarks);
+  RUN_TEST(test_menu_omits_sleep_on_a_device_that_never_sleeps);
+  RUN_TEST(test_menu_page_jump_rows_follow_the_mode);
+  RUN_TEST(test_menu_factory_reset_asks_first_and_defaults_to_no);
+  RUN_TEST(test_menu_selection_wraps_both_ways);
+  RUN_TEST(test_menu_rowAt_finds_the_row_under_a_finger);
+  RUN_TEST(test_menu_renders_inside_the_panel);
+
   return UNITY_END();
 }

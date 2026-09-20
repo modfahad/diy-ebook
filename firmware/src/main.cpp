@@ -55,6 +55,7 @@
 #include "net/verified_packages.h"
 #include "ui/home_screen.h"
 #include "ui/library_screen.h"
+#include "ui/options_menu.h"
 #include "ui/page_image_screen.h"
 #include "ui/bookmarks_screen.h"
 #include "net/bookmarks.h"
@@ -154,6 +155,13 @@ enum class ScreenMode : uint8_t {
   kBookmarks,  // continue reading, and saved places (ui::BookmarksScreen)
 };
 ScreenMode g_screen_mode = app::kTableClockMode ? ScreenMode::kHome : ScreenMode::kLibrary;
+
+// The options menu (ui::OptionsMenu). It is a modal over whatever screen is
+// showing rather than a ScreenMode of its own: the screen underneath keeps
+// its entire state, so closing the menu is a repaint, not a re-entry. Hold
+// OK opens it anywhere; the wheel and OK work it, and so does a tap.
+bool g_menu_open = false;
+ui::OptionsMenuState g_menu;
 
 // The Quran reader. Unlike the book reader, which loads all its text into
 // g_book_text and closes the file, this keeps the package OPEN for as long as
@@ -1317,7 +1325,7 @@ void RenderBookReader() {
 }
 
 void Repaint() {
-  if (g_screen_mode == ScreenMode::kHome) {
+  if (g_screen_mode == ScreenMode::kHome && !g_menu_open) {
     // The home screen pushes its own frames (PollHomeScreen): grey ones and
     // clock windows, never this black/white flush.
     g_home_full_pending = true;
@@ -1331,7 +1339,13 @@ void Repaint() {
   // a status repaint during one of those must not cancel that.
   const bool was_busy = g_idle.busy();
   g_idle.setBusy(true);
-  if (g_screen_mode == ScreenMode::kLibrary) {
+  if (g_menu_open) {
+    // Over the home screen this is the one black/white frame that screen
+    // otherwise never gets; closing it hands the grey photo back (see
+    // CloseOptionsMenu).
+    g_menu.touch_hint = g_input.diagnostics().touch_present;
+    ui::OptionsMenu::render(g_display.canvas(), g_menu);
+  } else if (g_screen_mode == ScreenMode::kLibrary) {
     RefreshLibraryState();
     ui::LibraryScreen::render(g_display.canvas(), g_library_state);
     if (g_library_state.grey_covers) {
@@ -2621,9 +2635,268 @@ const char* InputActionName(hal::InputAction action) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The options menu (ui::OptionsMenu)
+//
+// Every screen's actions, by name, opened by holding OK. It replaced the
+// hold-OK meanings that used to differ per screen and were written nowhere:
+// hold = bookmark here, or delete that bookmark, or toggle transfer mode,
+// and hold EXIT = wipe the device. All of them are rows in here now.
+// ---------------------------------------------------------------------------
+
+const char* ScreenName();  // defined with the other logging helpers below
+
+ui::MenuScreen MenuScreenFor(ScreenMode mode) {
+  switch (mode) {
+    case ScreenMode::kHome:        return ui::MenuScreen::kHome;
+    case ScreenMode::kLibrary:     return ui::MenuScreen::kLibrary;
+    case ScreenMode::kSelfTest:    return ui::MenuScreen::kSelfTest;
+    case ScreenMode::kReader:      return ui::MenuScreen::kReader;
+    case ScreenMode::kPages:       return ui::MenuScreen::kPages;
+    case ScreenMode::kQuran:       return ui::MenuScreen::kQuran;
+    case ScreenMode::kSurahPicker: return ui::MenuScreen::kSurahPicker;
+    case ScreenMode::kBookmarks:   return ui::MenuScreen::kBookmarks;
+  }
+  return ui::MenuScreen::kLibrary;
+}
+
+ui::MenuContext CurrentMenuContext() {
+  ui::MenuContext context;
+  context.screen = MenuScreenFor(g_screen_mode);
+  context.translation = g_reader_is_translation;
+  context.transfer_on = g_transfer_state != TransferState::kOff;
+  context.page_jump = g_page_jump_mode;
+  context.table_clock = app::kTableClockMode;
+  context.has_bookmarks = g_bookmarks.count() > 0;
+  context.library_in_category = g_library_view == ui::LibraryView::kItems;
+  if (g_screen_mode == ScreenMode::kBookmarks) {
+    uint16_t ignored = 0;
+    context.bookmark_selected =
+        ui::BookmarksScreen::rowKind(g_bookmarks_state, g_bookmarks_selected,
+                                     &ignored) != ui::BookmarkRow::kNone;
+  }
+  return context;
+}
+
+void OpenOptionsMenu() {
+  ui::OptionsMenu::build(CurrentMenuContext(), &g_menu);
+  g_menu_open = true;
+  g_force_full_refresh = true;  // over a grey home photo, or ghosted text
+  g_dirty = true;
+  drivers::Logf("[menu] open over %s, %u options\n", ScreenName(),
+                static_cast<unsigned>(g_menu.count));
+}
+
+void CloseOptionsMenu() {
+  if (!g_menu_open) return;
+  g_menu_open = false;
+  g_force_full_refresh = true;
+  g_dirty = true;
+  // The home screen's own painter owns the glass; Repaint() hands it back.
+  if (g_screen_mode == ScreenMode::kHome) g_home_full_pending = true;
+}
+
+// Back to the library from wherever we are, releasing whatever is open. The
+// same sequence MENU does, as one callable thing.
+void LeaveForLibrary() {
+  if (g_screen_mode == ScreenMode::kReader) {
+    CloseTranslation();
+  } else if (g_screen_mode == ScreenMode::kPages) {
+    ClosePageBook();
+  } else if (g_screen_mode == ScreenMode::kSurahPicker && g_surah_picker_translation) {
+    CloseTranslation();
+  } else if (g_screen_mode == ScreenMode::kQuran ||
+             g_screen_mode == ScreenMode::kSurahPicker) {
+    if (g_screen_mode == ScreenMode::kQuran) SaveQuranProgress();
+    CloseQuran();
+  }
+  g_screen_mode = ScreenMode::kLibrary;
+  g_library_status[0] = 0;
+  g_force_full_refresh = true;
+  g_dirty = true;
+}
+
+// Runs one row. The menu is already closed when this runs, so an action that
+// changes screens (or sleeps) lands on the new screen, not back in the menu.
+void RunMenuAction(ui::MenuAction action) {
+  switch (action) {
+    case ui::MenuAction::kOpenLibrary:
+      LeaveForLibrary();
+      break;
+
+    case ui::MenuAction::kLeaveCategory:
+      if (g_screen_mode == ScreenMode::kLibrary) LeaveLibraryCategory();
+      break;
+
+    case ui::MenuAction::kOpenSelected:
+      if (g_screen_mode == ScreenMode::kLibrary) {
+        HandleLibraryOk();
+      } else if (g_screen_mode == ScreenMode::kBookmarks) {
+        OpenSelectedBookmark();
+      } else if (g_screen_mode == ScreenMode::kSurahPicker) {
+        OpenSelectedSurah();
+      }
+      break;
+
+    case ui::MenuAction::kContinueReading:
+      EnterBookmarks();
+      // Row 0 is the "continue reading" row when there is one.
+      if (g_bookmarks_state.has_last_read) OpenSelectedBookmark();
+      break;
+
+    case ui::MenuAction::kBookmarks:
+      EnterBookmarks();
+      break;
+
+    case ui::MenuAction::kBookmarkHere:
+      AddBookmarkHere();
+      g_dirty = true;
+      break;
+
+    case ui::MenuAction::kDeleteBookmark:
+      DeleteSelectedBookmark();
+      break;
+
+    case ui::MenuAction::kTextSize:
+      CycleBookTextSize();
+      g_dirty = true;
+      break;
+
+    case ui::MenuAction::kChooseSurah:
+      if (g_screen_mode == ScreenMode::kReader && g_reader_is_translation) {
+        EnterTranslationSurahPicker();
+      } else if (g_screen_mode == ScreenMode::kQuran) {
+        SaveQuranProgress();
+        EnterSurahPicker(static_cast<uint16_t>(g_quran_state.surah_id - 1));
+      }
+      break;
+
+    case ui::MenuAction::kGoToPage:
+      if (g_screen_mode == ScreenMode::kPages) {
+        g_page_jump_mode = !g_page_jump_mode;
+        if (g_page_jump_mode) g_page_jump_target = g_page_index;
+        g_dirty = true;
+      }
+      break;
+
+    case ui::MenuAction::kNextChapter:
+      if (g_screen_mode == ScreenMode::kPages && g_page_jump_mode) {
+        JumpTargetToNextChapter();
+      }
+      break;
+
+    case ui::MenuAction::kCloseBook:
+      LeaveForLibrary();
+      break;
+
+    case ui::MenuAction::kSelfTest:
+      g_screen_mode = ScreenMode::kSelfTest;
+      g_force_full_refresh = true;
+      g_dirty = true;
+      break;
+
+    case ui::MenuAction::kTransferMode:
+      ToggleTransferMode();
+      break;
+
+    case ui::MenuAction::kRedraw:
+      g_force_full_refresh = true;
+      if (g_screen_mode == ScreenMode::kHome) g_home_full_pending = true;
+      g_dirty = true;
+      break;
+
+    case ui::MenuAction::kFactoryReset:
+      // Never reached: kFactoryReset turns into its confirmation list before
+      // anything runs (ChooseMenuRow).
+      break;
+
+    case ui::MenuAction::kFactoryResetConfirm:
+      FactoryReset();
+      break;
+
+    case ui::MenuAction::kSleep:
+      g_dirty = true;
+      Repaint();
+      if (!g_ble.active()) GoToSleep();
+      break;
+
+    case ui::MenuAction::kBack:
+    case ui::MenuAction::kNone:
+    default:
+      break;
+  }
+}
+
+// Chooses the highlighted row: either it asks for confirmation and the menu
+// stays open, or the menu closes and the action runs.
+void ChooseMenuRow() {
+  const ui::MenuAction action = ui::OptionsMenu::selectedAction(g_menu);
+  drivers::Logf("[menu] chose %s\n",
+                g_menu.selected < g_menu.count ? g_menu.items[g_menu.selected].label
+                                               : "(nothing)");
+  if (ui::OptionsMenu::buildConfirm(action, &g_menu)) {
+    g_dirty = true;
+    return;
+  }
+  CloseOptionsMenu();
+  RunMenuAction(action);
+}
+
+// True when the event was the menu's. Everything the menu does not consume
+// while it is open is swallowed rather than passed through: a MENU press that
+// also switched screens behind the menu would leave the two disagreeing.
+bool HandleMenuEvent(const hal::InputEvent& ev) {
+  if (!g_menu_open) return false;
+  switch (ev.source) {
+    case hal::InputSource::kEncoder:
+      if (ev.action == hal::InputAction::kRotate) {
+        ui::OptionsMenu::move(&g_menu, ev.delta);
+        g_dirty = true;
+      }
+      break;
+
+    case hal::InputSource::kEncoderSwitch:
+      // Only a click chooses. The hold that opened the menu must not also
+      // pick whatever row happens to be under the highlight.
+      if (ev.action == hal::InputAction::kClick) ChooseMenuRow();
+      break;
+
+    case hal::InputSource::kExit:
+    case hal::InputSource::kMenu:
+      if (ev.action == hal::InputAction::kClick) CloseOptionsMenu();
+      break;
+
+    case hal::InputSource::kTouch:
+      if (ev.action == hal::InputAction::kClick) {
+        const int row = ui::OptionsMenu::rowAt(g_menu, ev.x, ev.y);
+        if (row >= 0) {
+          g_menu.selected = static_cast<uint8_t>(row);
+          ChooseMenuRow();
+        }
+        // A tap on the margins is ignored, not a close: with the touch
+        // orientation still unconfirmed on hardware, a stray mapping should
+        // cost nothing.
+      }
+      break;
+
+    default:
+      break;
+  }
+  // No Repaint() here on purpose: the main loop repaints when g_dirty, which
+  // also coalesces a fast wheel spin into one refresh. Repainting per event
+  // would cost a full panel refresh for every swallowed button release.
+  return true;
+}
+
 void HandleEvent(const hal::InputEvent& ev) {
-  drivers::Logf("[input] %s %s delta=%d\n", InputSourceName(ev.source),
-                InputActionName(ev.action), static_cast<int>(ev.delta));
+  if (ev.source == hal::InputSource::kTouch) {
+    drivers::Logf("[input] TOUCH %s at (%d,%d)\n", InputActionName(ev.action),
+                  static_cast<int>(ev.x), static_cast<int>(ev.y));
+  } else {
+    drivers::Logf("[input] %s %s delta=%d\n", InputSourceName(ev.source),
+                  InputActionName(ev.action), static_cast<int>(ev.delta));
+  }
+  if (HandleMenuEvent(ev)) return;
   switch (ev.source) {
     case hal::InputSource::kMenu:
       if (ev.action == hal::InputAction::kClick) {
@@ -2778,8 +3051,12 @@ void HandleEvent(const hal::InputEvent& ev) {
         }
       } else if (ev.action == hal::InputAction::kLongPress) {
         g_seen_exit = true;
-        FactoryReset();
-        Repaint();
+        // This used to factory reset, with nothing on the glass saying so and
+        // no confirmation: one held button between a reader and a wiped
+        // device. It is a row in the hardware test screen's options now, and
+        // it asks first.
+        drivers::LogLine(
+            "[input] hold EXIT does nothing now -- hold OK for Options");
       }
       break;
 
@@ -2824,21 +3101,11 @@ void HandleEvent(const hal::InputEvent& ev) {
         }
       } else if (ev.action == hal::InputAction::kLongPress) {
         g_seen_switch = true;
-        g_dirty = true;
-        // Held while reading: keep this place. On the Bookmarks list: delete
-        // the selected one. Anywhere else it still toggles transfer mode.
-        if (g_screen_mode == ScreenMode::kPages || g_screen_mode == ScreenMode::kReader ||
-            g_screen_mode == ScreenMode::kQuran) {
-          if (g_screen_mode == ScreenMode::kReader && g_reader_is_translation) {
-            CycleBookTextSize();  // hold OK = text size in a translation
-          } else {
-            AddBookmarkHere();
-          }
-        } else if (g_screen_mode == ScreenMode::kBookmarks) {
-          DeleteSelectedBookmark();
-        } else {
-          ToggleTransferMode();
-        }
+        // One meaning, on every screen: show me what this screen can do.
+        // Bookmarking, deleting a bookmark, text size and transfer mode are
+        // all named rows in there now, instead of things you had to already
+        // know.
+        OpenOptionsMenu();
       }
       break;
 
@@ -3176,7 +3443,11 @@ void loop() {
   if (g_dirty && g_display.ready() && !g_input.rotaryPending()) {
     Repaint();
   }
-  if (!g_input.rotaryPending()) PollHomeScreen(millis());
+  // Not while the options menu is up: PollHomeScreen owns the glass on the
+  // clock screen and would paint the clock straight back over the menu on
+  // the next minute tick. (PollPagePrefetch below only decodes, so it is
+  // free to keep running.)
+  if (!g_input.rotaryPending() && !g_menu_open) PollHomeScreen(millis());
   if (!g_input.rotaryPending()) PollPagePrefetch();
 
   // A table clock never sleeps; it is on USB power (app::kTableClockMode).

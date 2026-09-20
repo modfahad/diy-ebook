@@ -151,8 +151,7 @@ It is a separate build and does not touch the product firmware.
 
 The product firmware now reads touch too (architecture.md 5c), so after this
 section passes, flash the normal build and watch the log: `[touch] GT911 at
-0x5D ...` at boot, then `[input] TOUCH click at (x,y)` for each tap. No screen
-reacts to a tap yet -- that is the options menu, still to come.
+0x5D ...` at boot, then `[input] TOUCH click at (x,y)` for each tap.
 
 Wiring first. The touch layer has its own 6-pin ribbon; the CrowPanel has no
 socket for it, so it needs a 6-pin FPC breakout wired to the 2x10 header.
@@ -181,3 +180,21 @@ pio run -d firmware -e touch_test -t upload && pio device monitor -d firmware -b
 | Drag a finger | A line follows about half a second behind; that lag is the panel's refresh |
 | Two to five fingers | One line per finger |
 | OK or MENU | Clears the glass |
+
+## 12. The options menu — added 2026-09-20
+
+**Not compiled and not run yet.** Works without touch: the wheel and OK drive
+it. Do this part even if the touch panel is not wired.
+
+| Do | Expect |
+|---|---|
+| Hold OK on the library's shelf list | A list: Open this shelf, Transfer mode, Hardware test, Sleep now, Close this menu. The title says "Library options" |
+| Open a shelf, hold OK again | The first row now says "Open this book", and "Back to all shelves" has appeared |
+| Turn the wheel | The highlight moves, and wraps past either end |
+| Press EXIT | The menu closes and the library comes back unchanged |
+| Hold OK in a book, choose "Save this place" | "Bookmark saved" as before — this is what holding OK used to do silently |
+| Hold OK with a bookmark selected in Saved places | "Delete this place" is there; with nothing selected it is not |
+| Hardware test → hold OK → Factory reset | A question, with "No, keep everything" highlighted. EXIT closes it and erases nothing |
+| Hold EXIT anywhere | **Nothing happens** (it used to wipe the device). The log says so |
+| With touch working: tap a row | That row runs. Tapping the margins does nothing |
+| Hold OK on the clock screen | The menu draws over the photo; closing it brings the photo back |

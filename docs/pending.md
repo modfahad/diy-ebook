@@ -197,6 +197,17 @@ with a GT911 capacitive touch layer on its own 6-pin ribbon.
 - Not done, deliberately: powering the touch layer down with the screen
   (8 mA awake vs 100 uA idle) and waking the device on its INT line.
 
+**The options menu (2026-09-20).** Hold OK on any screen opens
+`ui::OptionsMenu` -- that screen's actions by name, worked by the wheel and OK
+or by a tap (architecture.md 5d). This replaced every hidden hold: hold OK no
+longer means bookmark / delete / text size / transfer mode by screen, and
+**hold EXIT no longer factory resets** -- that is a row on the hardware test
+screen's menu now, and it asks first. 10 new host tests in `test_ui`.
+**Not compiled and not run on hardware**, same reason as everything above.
+Still open: nothing on a reading screen responds to a tap yet (page turns,
+library rows, a menu corner) -- that is the next step, and it needs the
+orientation flags first.
+
 **Smart App Control is on on this PC**, and it blocks every unsigned native
 binary a local build needs: `rustc`, Tauri's CLI, Rollup's native module and
 `hermesc.exe`. So neither app builds or runs from source here; build in CI

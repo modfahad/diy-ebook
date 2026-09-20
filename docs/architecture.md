@@ -451,6 +451,37 @@ battery this device does not have a divider for yet. Powering it down with
 the screen, and waking on its INT line (RTC-capable, so it can), are both
 open — see pending.md.
 
+## 5d. The options menu: one meaning for a held OK
+
+OK used to mean something different on every screen, and the glass never said
+which. Click was "open" in the library, "text size" in a book, "go to page" in
+a picture book. Hold was "save this place", or "delete this bookmark", or
+"turn transfer mode on", by screen. Holding EXIT factory reset the device,
+with no warning and no confirmation.
+
+**Hold OK now opens `ui::OptionsMenu` on every screen**: that screen's actions,
+listed by name. The wheel moves, OK chooses, EXIT closes, and because the rows
+are 40 px tall and the full width of the rules, a tap chooses too — the first
+thing on this device a finger can actually do. The old hold meanings are gone;
+each is a row where it belongs.
+
+- **A modal, not a `ScreenMode`.** The screen underneath keeps all of its
+  state, so closing the menu is a repaint rather than a re-entry — it matters
+  most for the Quran reader, whose position is expensive to rebuild.
+- **`build()` is a pure function of a `MenuContext`.** Which rows exist
+  depends on the screen and on six flags (translation? transfer on? any
+  bookmarks? …), all of which main.cpp already knows. That is what makes the
+  whole menu host-testable without a device.
+- **Destructive rows ask.** `buildConfirm()` turns Factory reset into a
+  two-row question with the highlight on "No, keep everything". Nothing else
+  asks, so ordinary rows stay one press.
+- **Every list can be left.** `AddTail()` always appends "Close this menu",
+  and "Sleep now" except in table-clock mode, where the device never sleeps.
+- **`rowAt()` is the touch half**, and the only place a tap currently does
+  anything. Taps on the margins are ignored rather than closing the menu:
+  until the touch orientation is confirmed on real glass, a stray mapping
+  should cost nothing.
+
 ## 6. Storage layout
 
 Committed now (spec sections 15/16) so later milestones do not each invent
