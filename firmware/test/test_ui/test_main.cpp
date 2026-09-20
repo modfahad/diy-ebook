@@ -1898,6 +1898,101 @@ void test_library_row_at_is_minus_one_when_there_is_nothing_to_hit() {
   TEST_ASSERT_EQUAL_INT32(-1, ui::LibraryScreen::rowAt(empty, 300, 90));
 }
 
+
+// ---------------------------------------------------------------------------
+// Tapping the other two lists (BookmarksScreen::rowAt, SurahPickerScreen::rowAt)
+// ---------------------------------------------------------------------------
+
+void test_bookmarks_row_at_follows_the_scroll_the_render_used() {
+  net::LibraryIndex index;
+  index.upsert(MakeEntry(1, qpk::PackageType::kPageBook, "A Picture Book"));
+  net::Bookmarks marks;
+  for (uint32_t i = 0; i < 30; ++i) {
+    net::Bookmark mark;
+    memset(mark.content_id, 1, sizeof(mark.content_id));
+    mark.kind = net::BookmarkKind::kPageBook;
+    mark.a = 100 + i;
+    marks.add(mark);
+  }
+  ui::BookmarksState state;
+  state.index = &index;
+  state.bookmarks = &marks;
+
+  // Rows start at y = 84, 28 px apart (bookmarks_screen.cpp).
+  TEST_ASSERT_EQUAL_INT32(0, ui::BookmarksScreen::rowAt(state, 300, 84));
+  TEST_ASSERT_EQUAL_INT32(1, ui::BookmarksScreen::rowAt(state, 300, 112));
+
+  // This list has no stored scroll: it is derived from the selection, so the
+  // hit test has to ask scrollTop() rather than assume the top of the list.
+  state.selected = 20;
+  const uint16_t top = ui::BookmarksScreen::scrollTop(state);
+  TEST_ASSERT_TRUE(top > 0);
+  TEST_ASSERT_EQUAL_INT32(top, ui::BookmarksScreen::rowAt(state, 300, 84));
+  TEST_ASSERT_EQUAL_INT32(top + 3, ui::BookmarksScreen::rowAt(state, 300, 84 + 3 * 28));
+
+  // Off the list: header, footer, margins.
+  TEST_ASSERT_EQUAL_INT32(-1, ui::BookmarksScreen::rowAt(state, 300, 40));
+  TEST_ASSERT_EQUAL_INT32(-1, ui::BookmarksScreen::rowAt(state, 300, 460));
+  TEST_ASSERT_EQUAL_INT32(-1, ui::BookmarksScreen::rowAt(state, 5, 100));
+
+  // An empty list has nothing to hit.
+  net::Bookmarks none;
+  ui::BookmarksState empty;
+  empty.index = &index;
+  empty.bookmarks = &none;
+  TEST_ASSERT_EQUAL_INT32(-1, ui::BookmarksScreen::rowAt(empty, 300, 90));
+}
+
+void test_bookmarks_row_at_stops_at_the_last_real_row() {
+  net::LibraryIndex index;
+  index.upsert(MakeEntry(1, qpk::PackageType::kPageBook, "A Picture Book"));
+  net::Bookmarks marks;
+  net::Bookmark mark;
+  memset(mark.content_id, 1, sizeof(mark.content_id));
+  mark.kind = net::BookmarkKind::kPageBook;
+  mark.a = 7;
+  marks.add(mark);
+
+  ui::BookmarksState state;
+  state.index = &index;
+  state.bookmarks = &marks;
+  TEST_ASSERT_EQUAL_UINT16(1, ui::BookmarksScreen::rowCount(state));
+  TEST_ASSERT_EQUAL_INT32(0, ui::BookmarksScreen::rowAt(state, 300, 90));
+  // The empty glass below the only row must not delete or open anything.
+  TEST_ASSERT_EQUAL_INT32(-1, ui::BookmarksScreen::rowAt(state, 300, 84 + 28));
+}
+
+void test_surah_picker_row_at_is_zero_based_like_selected() {
+  ui::SurahPickerState state;
+  const uint16_t ayahs[] = {7, 286, 200, 176, 120};
+  state.list_count = 5;
+  state.list_ayah_counts = ayahs;
+  TEST_ASSERT_EQUAL_UINT16(5, ui::SurahPickerScreen::rowCount(state));
+
+  // Row 0 is surah 1: main.cpp puts this straight into the 0-based
+  // g_surah_picker_selected, so an off-by-one here opens the wrong surah.
+  TEST_ASSERT_EQUAL_INT32(0, ui::SurahPickerScreen::rowAt(state, 300, 84));
+  TEST_ASSERT_EQUAL_INT32(1, ui::SurahPickerScreen::rowAt(state, 300, 112));
+  TEST_ASSERT_EQUAL_INT32(4, ui::SurahPickerScreen::rowAt(state, 300, 84 + 4 * 28));
+
+  // Past the end of a short list, and off to the sides.
+  TEST_ASSERT_EQUAL_INT32(-1, ui::SurahPickerScreen::rowAt(state, 300, 84 + 5 * 28));
+  TEST_ASSERT_EQUAL_INT32(-1, ui::SurahPickerScreen::rowAt(state, 5, 90));
+  TEST_ASSERT_EQUAL_INT32(-1, ui::SurahPickerScreen::rowAt(state, 300, 40));
+
+  // Scrolled down the full 114: the top row is whatever scroll_top says.
+  state.scroll_top = 40;
+  state.list_count = 114;
+  TEST_ASSERT_EQUAL_INT32(40, ui::SurahPickerScreen::rowAt(state, 300, 84));
+  TEST_ASSERT_EQUAL_INT32(51, ui::SurahPickerScreen::rowAt(state, 300, 84 + 11 * 28));
+  // The 13th line is past the 12 this screen draws.
+  TEST_ASSERT_EQUAL_INT32(-1, ui::SurahPickerScreen::rowAt(state, 300, 84 + 12 * 28));
+
+  // No reader and no list: nothing to hit.
+  ui::SurahPickerState nothing;
+  TEST_ASSERT_EQUAL_INT32(-1, ui::SurahPickerScreen::rowAt(nothing, 300, 90));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_surah_picker_row_count_is_zero_with_no_package_open);
@@ -1978,6 +2073,10 @@ int main(int, char**) {
   RUN_TEST(test_library_row_at_hits_shelf_tiles_including_their_titles);
   RUN_TEST(test_library_row_at_hits_the_home_tiles);
   RUN_TEST(test_library_row_at_is_minus_one_when_there_is_nothing_to_hit);
+
+  RUN_TEST(test_bookmarks_row_at_follows_the_scroll_the_render_used);
+  RUN_TEST(test_bookmarks_row_at_stops_at_the_last_real_row);
+  RUN_TEST(test_surah_picker_row_at_is_zero_based_like_selected);
 
   return UNITY_END();
 }

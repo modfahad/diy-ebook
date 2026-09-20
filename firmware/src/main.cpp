@@ -3156,6 +3156,27 @@ void HandleTouchTap(int16_t x, int16_t y) {
       break;
     }
 
+    case ScreenMode::kBookmarks: {
+      const int32_t row = ui::BookmarksScreen::rowAt(g_bookmarks_state, x, y);
+      if (row < 0) break;
+      g_bookmarks_selected = static_cast<uint16_t>(row);
+      OpenSelectedBookmark();
+      break;
+    }
+
+    case ScreenMode::kSurahPicker: {
+      // The picker's state is rebuilt in Repaint(); the scroll position it
+      // was last drawn with is the one in g_surah_picker_scroll_top, which is
+      // what the hit test needs.
+      g_surah_picker_state.selected = g_surah_picker_selected;
+      g_surah_picker_state.scroll_top = g_surah_picker_scroll_top;
+      const int32_t row = ui::SurahPickerScreen::rowAt(g_surah_picker_state, x, y);
+      if (row < 0) break;
+      g_surah_picker_selected = static_cast<uint16_t>(row);
+      OpenSelectedSurah();
+      break;
+    }
+
     case ScreenMode::kReader:
     case ScreenMode::kPages:
     case ScreenMode::kQuran: {

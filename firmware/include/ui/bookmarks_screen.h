@@ -47,6 +47,13 @@ class BookmarksScreen {
   /** The first row drawn, so that `selected` is always on screen. */
   static uint16_t scrollTop(const BookmarksState& state);
 
+  /**
+   * Which row a tap at (x, y) is on, or -1 for none. Display pixels, and the
+   * scroll position is taken from the same scrollTop() the render uses, so a
+   * tap cannot land on the row that was there before the list scrolled.
+   */
+  static int32_t rowAt(const BookmarksState& state, int16_t x, int16_t y);
+
   /** "page 212", "Surah 18, screen 3" -- the place, without the book. */
   static void describe(const net::Bookmark& mark, char* out, uint32_t capacity);
 };

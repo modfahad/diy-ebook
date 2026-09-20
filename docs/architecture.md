@@ -493,6 +493,11 @@ Taps act on three more screens, and only ever do what a button already does:
   320 px band down the middle deliberately does nothing: a page turn costs
   half a second and the reader's place, and a hand holding the device rests
   near the centre.
+- **The saved places list and the surah picker open a tapped row too**
+  (`ui::BookmarksScreen::rowAt`, `ui::SurahPickerScreen::rowAt`). The
+  bookmarks list keeps no scroll position of its own -- it derives one from
+  the selection -- so its hit test asks `scrollTop()` rather than assuming the
+  list starts at the top.
 - **A page turn by tap goes through `HandleRotate()`**, the wheel's own
   per-screen logic, moved out of `HandleEvent` rather than copied. The clamps,
   the surah boundaries and the Quran's history stack were settled on real

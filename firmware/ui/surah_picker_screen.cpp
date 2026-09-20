@@ -60,6 +60,17 @@ uint16_t SurahPickerScreen::rowCount(const SurahPickerState& state) {
       state.reader->recordCount(qpk::SectionId::kSurahIndex));
 }
 
+int32_t SurahPickerScreen::rowAt(const SurahPickerState& state, int16_t x, int16_t y) {
+  const uint16_t total = rowCount(state);
+  if (total == 0) return -1;
+  if (x < kRowLeftX - 14 || x >= kRuleX + kRuleW) return -1;
+  if (y < kRowTop || y >= kListBottom) return -1;
+  const int32_t line = (y - kRowTop) / kRowStep;
+  const int32_t row = static_cast<int32_t>(state.scroll_top) + line;
+  if (row < 0 || row >= static_cast<int32_t>(total)) return -1;
+  return row;
+}
+
 void SurahPickerScreen::render(gfx::Canvas& canvas, const SurahPickerState& state) {
   char buf[80];
 

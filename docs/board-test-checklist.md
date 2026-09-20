@@ -233,4 +233,7 @@ touch orientation being right.
 | In a book, tap the left-hand edge | Previous page |
 | Tap the middle of the page | **Nothing** — that band is for the hand holding the device |
 | Same three taps in a picture book and in the Quran | Same behaviour; the Quran goes forward and back by screen |
+| Tap a row in Saved places | It opens that place, same as OK |
+| Scroll Saved places past the twelfth row, then tap the top row | The row you tapped opens, not the one that used to be there |
+| Tap a surah in the surah list | That surah opens — check the number matches, an off-by-one would open its neighbour |
 | Rest a thumb on the glass for a second while reading | Nothing opens. The options menu is hold OK, not hold-on-glass |

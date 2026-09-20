@@ -37,6 +37,17 @@ void Fit(const char* text, int max_px, char* out, size_t capacity) {
 
 }  // namespace
 
+int32_t BookmarksScreen::rowAt(const BookmarksState& state, int16_t x, int16_t y) {
+  const uint16_t total = rowCount(state);
+  if (total == 0) return -1;
+  if (x < kRowLeftX - 14 || x >= kRuleX + kRuleW) return -1;
+  if (y < kRowTop || y >= kRowTop + kBookmarksVisibleRows * kRowStep) return -1;
+  const int32_t line = (y - kRowTop) / kRowStep;
+  const int32_t row = static_cast<int32_t>(scrollTop(state)) + line;
+  if (row < 0 || row >= static_cast<int32_t>(total)) return -1;
+  return row;
+}
+
 uint16_t BookmarksScreen::rowCount(const BookmarksState& state) {
   const uint16_t marks = state.bookmarks != nullptr ? state.bookmarks->count() : 0;
   return static_cast<uint16_t>(marks + (state.has_last_read ? 1 : 0));

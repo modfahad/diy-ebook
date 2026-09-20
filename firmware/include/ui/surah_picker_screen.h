@@ -46,6 +46,12 @@ class SurahPickerScreen {
 
   /** recordCount(kSurahIndex) off the reader; list_count without one; 0 if neither. */
   static uint16_t rowCount(const SurahPickerState& state);
+
+  /**
+   * Which row a tap at (x, y) is on, or -1 for none. Display pixels, and
+   * 0-based like `selected`: row 0 is surah 1.
+   */
+  static int32_t rowAt(const SurahPickerState& state, int16_t x, int16_t y);
 };
 
 }  // namespace ui

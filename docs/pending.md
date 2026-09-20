@@ -207,8 +207,10 @@ screen's menu now, and it asks first. 10 new host tests in `test_ui`.
 Taps now act: a library row or shelf tile opens (`ui::LibraryScreen::rowAt`),
 and the left/right edges of the book, picture-book and Quran readers turn the
 page through the wheel's own `HandleRotate()` (architecture.md 5d).
-Still open: the bookmarks list and the surah picker are not tappable yet, and
-a hold on the glass deliberately does nothing.
+The saved places list and the surah picker take taps as well. Still open: a
+hold on the glass deliberately does nothing (a thumb resting while reading
+would open the menu), and the reading screens have no on-screen menu corner --
+hold OK is how the menu opens.
 
 **Screen and touch setup (2026-09-20).** The touch orientation and the
 picture's rotation are found on the device now, not by reflashing:
