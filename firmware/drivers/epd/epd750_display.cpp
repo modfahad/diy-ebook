@@ -201,8 +201,21 @@ bool Epd750Display::loadRestoreFrame() {
 // panel-native: identical at rotation 0, and at rotation 2 a 180-degree turn,
 // which for a width that is a multiple of 8 is exactly "reverse the byte order
 // and the bits within each byte".
+void Epd750Display::setRotation(uint8_t quarter_turns) {
+  const uint8_t rotation = quarter_turns == 2 ? 2 : 0;
+  if (rotation == rotation_) return;
+  rotation_ = rotation;
+  // The panel may not be up yet (the setting is loaded off the card before
+  // begin()); when it is, the controller has to be told now, and the caller
+  // repaints everything -- a partial refresh against a frame that has just
+  // been turned 180 degrees would diff every pixel on the glass anyway.
+  if (g_bw != nullptr) g_bw->setRotation(rotation_);
+  if (g_grey != nullptr) g_grey->setRotation(rotation_);
+  Logf("[epd] rotation=%u\n", static_cast<unsigned>(rotation_));
+}
+
 bool Epd750Display::writeRestoredFrame() {
-  if (board::kDisplayRotation == 0) {
+  if (rotation_ == 0) {
     g_bw->epd2.writeImageForFullRefresh(framebuffer_, 0, 0, board::kWidth,
                                         board::kHeight);
     return true;
@@ -249,12 +262,12 @@ bool Epd750Display::begin() {
   SPI.end();
   SPI.begin(board::kEpdSck, -1, board::kEpdMosi, board::kEpdCs);
 
-  g_bw->setRotation(board::kDisplayRotation);
-  g_grey->setRotation(board::kDisplayRotation);
+  g_bw->setRotation(rotation_);
+  g_grey->setRotation(rotation_);
   Logf("[epd] GxEPD2_4G init initial=%d, SPI SCK=%d MOSI=%d CS=%d, "
        "rotation=%u, %ux%u",
        restoring ? 0 : 1, board::kEpdSck, board::kEpdMosi, board::kEpdCs,
-       static_cast<unsigned>(board::kDisplayRotation),
+       static_cast<unsigned>(rotation_),
        static_cast<unsigned>(g_bw->width()), static_cast<unsigned>(g_bw->height()));
 
   if (restoring && !writeRestoredFrame()) {
@@ -401,7 +414,7 @@ bool Epd750Display::flushWindow(int16_t x, int16_t y, int16_t w, int16_t h) {
 
   // Panel-native order: identical at rotation 0; at rotation 2 the window
   // sits mirrored in both axes and every byte is bit-reversed.
-  const bool turned = (board::kDisplayRotation == 2);
+  const bool turned = (rotation_ == 2);
   for (int16_t row = 0; row < h; ++row) {
     const uint32_t source_row =
         static_cast<uint32_t>(turned ? y + h - 1 - row : y + row) * board::kStrideBytes;

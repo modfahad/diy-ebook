@@ -198,3 +198,21 @@ it. Do this part even if the touch panel is not wired.
 | Hold EXIT anywhere | **Nothing happens** (it used to wipe the device). The log says so |
 | With touch working: tap a row | That row runs. Tapping the margins does nothing |
 | Hold OK on the clock screen | The menu draws over the photo; closing it brings the photo back |
+
+## 13. Screen and touch setup — added 2026-09-20
+
+**Not compiled and not run yet.** This is now the fastest way to find the
+touch orientation: it replaces editing `board_crowpanel_579.h` and reflashing.
+
+| Do | Expect |
+|---|---|
+| Hardware test screen → hold OK → "Screen and touch setup" | A screen with two boxes near the top, "1" on the left and "2" on the right |
+| **First**, press MENU until the writing is the right way up | The whole picture turns 180° each press. Do this before the touch part: turning it afterwards clears the boxes, because a flip moves every position under a touch layer that did not move |
+| Tap box 1 | It fills in solid, and a cross marks where the tap was read |
+| Tap box 2 | It fills in too, and the screen says "Both boxes hit — this is the one" |
+| If the wrong box fills, or neither does | Press OK for the next of the eight ways round, then tap both boxes again |
+| Press EXIT | Saves and returns to the hardware test screen. The log shows `[setup] saved /DEVICE/screen.txt: rotation=0 touch=5` |
+| Restart the device | The saved orientation is still in force; the log shows `[setup] rotation=0 touch=5` at boot |
+| Pull the card and read `/DEVICE/screen.txt` | One line: `rotation=0 touch=5` |
+| With a rotated picture, turn a few book pages | Partial refreshes still look right — rotation touches the window-refresh path |
+| Delete `/DEVICE/screen.txt` and restart | Back to the build-time defaults, log says "(defaults, nothing saved yet)" |

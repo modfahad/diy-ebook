@@ -22,6 +22,7 @@
 
 #include <stdint.h>
 
+#include "board/board_crowpanel_579.h"  // the rotation default only
 #include "gfx/canvas.h"
 #include "hal/display.h"
 #include "hal/storage.h"
@@ -30,6 +31,15 @@ namespace drivers {
 
 class Epd750Display : public hal::IDisplay {
  public:
+  // Which way up the picture sits, in quarter turns: 0 or 2, nothing else
+  // (the screens are laid out for landscape 800x480). It starts at
+  // board::kDisplayRotation and the setup screen changes it at runtime, so
+  // turning a device round in its case does not mean a reflash. Takes effect
+  // on the next begin(), or immediately if the panel is already up -- the
+  // caller must force a full refresh either way, because every pixel moves.
+  void setRotation(uint8_t quarter_turns);
+  uint8_t rotation() const { return rotation_; }
+
   bool begin() override;
   void end() override;
   bool ready() const override { return ready_; }
@@ -95,6 +105,8 @@ class Epd750Display : public hal::IDisplay {
   uint32_t lastWaveformMs() const { return last_waveform_ms_; }
 
  private:
+  uint8_t rotation_ = board::kDisplayRotation;
+
   bool allocateFramebuffer();
   bool allocatePanel();
   bool loadRestoreFrame();

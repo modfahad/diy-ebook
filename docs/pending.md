@@ -205,8 +205,19 @@ longer means bookmark / delete / text size / transfer mode by screen, and
 screen's menu now, and it asks first. 10 new host tests in `test_ui`.
 **Not compiled and not run on hardware**, same reason as everything above.
 Still open: nothing on a reading screen responds to a tap yet (page turns,
-library rows, a menu corner) -- that is the next step, and it needs the
-orientation flags first.
+library rows, a menu corner) -- that is the next step.
+
+**Screen and touch setup (2026-09-20).** The touch orientation and the
+picture's rotation are found on the device now, not by reflashing:
+Options -> "Screen and touch setup" (`ui::SetupScreen`, architecture.md 5e)
+turns the picture, steps through the eight touch orientations against two
+targets, and saves both to `/DEVICE/screen.txt` (`util::ScreenSetup`).
+`board::kTouchSwapXY` and friends are still the defaults; the saved file wins.
+11 more host tests. **Not compiled and not run on hardware.** The one thing
+worth watching on the bench: `Epd750Display::setRotation()` replaced four
+reads of `board::kDisplayRotation`, two of them in the partial-window and
+restored-frame paths that were verified on real glass -- so check a rotated
+device still does partial refreshes cleanly, not just full ones.
 
 **Smart App Control is on on this PC**, and it blocks every unsigned native
 binary a local build needs: `rustc`, Tauri's CLI, Rollup's native module and

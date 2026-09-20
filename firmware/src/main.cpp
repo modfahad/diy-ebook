@@ -62,9 +62,11 @@
 #include "ui/quran_screen.h"
 #include "ui/reader_screen.h"
 #include "ui/selftest_screen.h"
+#include "ui/setup_screen.h"
 #include "ui/surah_picker_screen.h"
 #include "util/battery.h"
 #include "util/idle_policy.h"
+#include "util/screen_setup.h"
 
 namespace {
 
@@ -153,6 +155,7 @@ enum class ScreenMode : uint8_t {
   kHome, kLibrary, kSelfTest, kReader, kQuran, kSurahPicker,
   kPages,      // a book shown as page pictures (ui::PageImageScreen)
   kBookmarks,  // continue reading, and saved places (ui::BookmarksScreen)
+  kScreenSetup,  // which way up, and which way round touch is (ui::SetupScreen)
 };
 ScreenMode g_screen_mode = app::kTableClockMode ? ScreenMode::kHome : ScreenMode::kLibrary;
 
@@ -162,6 +165,13 @@ ScreenMode g_screen_mode = app::kTableClockMode ? ScreenMode::kHome : ScreenMode
 // OK opens it anywhere; the wheel and OK work it, and so does a tap.
 bool g_menu_open = false;
 ui::OptionsMenuState g_menu;
+
+// The screen-and-touch setup screen, and the screen to go back to when it
+// closes. Its two settings are applied the moment they change -- turning the
+// picture while looking at it is the only way to tell it is the right way up
+// -- and written to the card on the way out.
+ui::SetupState g_setup;
+ScreenMode g_setup_return_to = ScreenMode::kSelfTest;
 
 // The Quran reader. Unlike the book reader, which loads all its text into
 // g_book_text and closes the file, this keeps the package OPEN for as long as
@@ -558,6 +568,62 @@ uint16_t g_photo_count = 0;
 uint16_t g_photo_next = 0;                // index of the photo to show next
 uint16_t g_photo_shown = 0;               // 1-based; 0 = none on screen
 bool g_photo_loaded = false;
+
+// Which way up the picture is, and which way round touch is. Both start as
+// the board header's build-time defaults and are overridden by whatever the
+// setup screen last saved, so a device that sits upside down in its case, or
+// a touch layer wired with its axes swapped, is a setting rather than a
+// rebuild. A missing or unreadable file means "use the defaults".
+// Seeded from the board header rather than left at zero: LoadScreenSetup()
+// only runs when the card mounted, and ApplyScreenSetup() runs either way.
+util::ScreenSetup g_screen_setup = {
+    board::kDisplayRotation,
+    static_cast<uint8_t>((board::kTouchSwapXY ? 1 : 0) |
+                         (board::kTouchInvertX ? 2 : 0) |
+                         (board::kTouchInvertY ? 4 : 0)),
+};
+
+void LoadScreenSetup() {
+  g_screen_setup.rotation = board::kDisplayRotation;
+  g_screen_setup.touch_orientation = static_cast<uint8_t>(
+      (board::kTouchSwapXY ? 1 : 0) | (board::kTouchInvertX ? 2 : 0) |
+      (board::kTouchInvertY ? 4 : 0));
+
+  char text[util::kScreenSetupMaxChars + 1] = {0};
+  const int32_t n =
+      g_storage.read(app::kFileScreenSetup, 0, text, sizeof(text) - 1);
+  if (n > 0) {
+    text[n] = '\0';
+    if (!util::ParseScreenSetup(text, &g_screen_setup)) {
+      drivers::Logf("[setup] ignoring unreadable %s\n", app::kFileScreenSetup);
+    }
+  }
+  drivers::Logf("[setup] rotation=%u touch=%u%s\n",
+                static_cast<unsigned>(g_screen_setup.rotation),
+                static_cast<unsigned>(g_screen_setup.touch_orientation),
+                n > 0 ? "" : " (defaults, nothing saved yet)");
+}
+
+// Applies what is in g_screen_setup to the panel and to the input manager.
+void ApplyScreenSetup() {
+  g_display.setRotation(g_screen_setup.rotation);
+  g_input.setTouchOrientation(g_screen_setup.touch_orientation);
+}
+
+bool SaveScreenSetup() {
+  char text[util::kScreenSetupMaxChars + 1] = {0};
+  const uint8_t n =
+      util::FormatScreenSetup(g_screen_setup, text, sizeof(text) - 1);
+  if (n == 0) return false;
+  if (!g_storage.mounted()) {
+    drivers::LogLine("[setup] no card -- the setting holds until the next restart");
+    return false;
+  }
+  const bool ok = g_storage.writeAll(app::kFileScreenSetup, text, n);
+  drivers::Logf("[setup] %s %s: %s", ok ? "saved" : "FAILED to save",
+                app::kFileScreenSetup, text);
+  return ok;
+}
 
 // Applies the time zone the desktop app last sent (POST /api/device/time).
 void LoadTimeZone() {
@@ -1360,6 +1426,9 @@ void Repaint() {
     RenderBookReader();
   } else if (g_screen_mode == ScreenMode::kPages) {
     RenderPageBook();
+  } else if (g_screen_mode == ScreenMode::kScreenSetup) {
+    g_setup.touch_present = g_input.diagnostics().touch_present;
+    ui::SetupScreen::render(g_display.canvas(), g_setup);
   } else if (g_screen_mode == ScreenMode::kBookmarks) {
     RenderBookmarks();
   } else if (g_screen_mode == ScreenMode::kSurahPicker) {
@@ -2635,6 +2704,92 @@ const char* InputActionName(hal::InputAction action) {
   }
 }
 
+void OpenOptionsMenu();  // defined with the options menu below
+
+void EnterScreenSetup() {
+  g_setup = ui::SetupState();
+  g_setup.rotation = g_screen_setup.rotation;
+  g_setup.touch_orientation = g_screen_setup.touch_orientation;
+  g_setup.touch_present = g_input.diagnostics().touch_present;
+  // Coming back to the clock screen from here would hide the result behind a
+  // photo, so the hardware test screen is the fallback -- it is where this
+  // screen belongs anyway.
+  g_setup_return_to = g_screen_mode == ScreenMode::kHome ? ScreenMode::kSelfTest
+                                                         : g_screen_mode;
+  g_screen_mode = ScreenMode::kScreenSetup;
+  g_force_full_refresh = true;
+  g_dirty = true;
+}
+
+// Saves, applies and leaves. EXIT is the only way out that writes the card,
+// which is also what makes it safe to try all eight orientations: nothing is
+// remembered until it is left deliberately.
+void LeaveScreenSetup() {
+  g_screen_setup.rotation = g_setup.rotation;
+  g_screen_setup.touch_orientation = g_setup.touch_orientation;
+  ApplyScreenSetup();
+  g_setup.saved = SaveScreenSetup();
+  g_screen_mode = g_setup_return_to;
+  g_force_full_refresh = true;
+  g_dirty = true;
+}
+
+// The setup screen's own buttons. It is deliberately not a list: a wrong
+// touch orientation is exactly the situation where a list cannot be used, so
+// every control here is a physical button, and touch only ever reports where
+// it thinks the finger went.
+bool HandleScreenSetupEvent(const hal::InputEvent& ev) {
+  if (g_screen_mode != ScreenMode::kScreenSetup) return false;
+  switch (ev.source) {
+    case hal::InputSource::kEncoderSwitch:
+      if (ev.action == hal::InputAction::kClick) {
+        ui::SetupScreen::nextTouchOrientation(&g_setup);
+        g_input.setTouchOrientation(g_setup.touch_orientation);
+        g_dirty = true;
+      } else if (ev.action == hal::InputAction::kLongPress) {
+        // Hold OK is the menu everywhere else; here it is the way out to a
+        // normal screen if the wheel is all that works.
+        OpenOptionsMenu();
+      }
+      break;
+
+    case hal::InputSource::kEncoder:
+      if (ev.action == hal::InputAction::kRotate) {
+        for (int16_t i = 0; i < (ev.delta < 0 ? -ev.delta : ev.delta); ++i) {
+          ui::SetupScreen::nextTouchOrientation(&g_setup);
+        }
+        g_input.setTouchOrientation(g_setup.touch_orientation);
+        g_dirty = true;
+      }
+      break;
+
+    case hal::InputSource::kMenu:
+      if (ev.action == hal::InputAction::kClick) {
+        ui::SetupScreen::flipPicture(&g_setup);
+        // Applied at once: seeing it is the only way to know which way is up.
+        g_display.setRotation(g_setup.rotation);
+        g_force_full_refresh = true;
+        g_dirty = true;
+      }
+      break;
+
+    case hal::InputSource::kExit:
+      if (ev.action == hal::InputAction::kClick) LeaveScreenSetup();
+      break;
+
+    case hal::InputSource::kTouch:
+      if (ev.action == hal::InputAction::kClick) {
+        ui::SetupScreen::noteTap(&g_setup, ev.x, ev.y);
+        g_dirty = true;
+      }
+      break;
+
+    default:
+      break;
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // The options menu (ui::OptionsMenu)
 //
@@ -2656,6 +2811,7 @@ ui::MenuScreen MenuScreenFor(ScreenMode mode) {
     case ScreenMode::kQuran:       return ui::MenuScreen::kQuran;
     case ScreenMode::kSurahPicker: return ui::MenuScreen::kSurahPicker;
     case ScreenMode::kBookmarks:   return ui::MenuScreen::kBookmarks;
+    case ScreenMode::kScreenSetup: return ui::MenuScreen::kScreenSetup;
   }
   return ui::MenuScreen::kLibrary;
 }
@@ -2795,6 +2951,10 @@ void RunMenuAction(ui::MenuAction action) {
       g_dirty = true;
       break;
 
+    case ui::MenuAction::kScreenSetup:
+      EnterScreenSetup();
+      break;
+
     case ui::MenuAction::kTransferMode:
       ToggleTransferMode();
       break;
@@ -2897,6 +3057,7 @@ void HandleEvent(const hal::InputEvent& ev) {
                   InputActionName(ev.action), static_cast<int>(ev.delta));
   }
   if (HandleMenuEvent(ev)) return;
+  if (HandleScreenSetupEvent(ev)) return;
   switch (ev.source) {
     case hal::InputSource::kMenu:
       if (ev.action == hal::InputAction::kClick) {
@@ -3250,6 +3411,7 @@ const char* ScreenName() {
     case ScreenMode::kBookmarks:   return "bookmarks";
     case ScreenMode::kQuran:       return "quran";
     case ScreenMode::kSurahPicker: return "surah-picker";
+    case ScreenMode::kScreenSetup: return "screen-setup";
   }
   return "?";
 }
@@ -3352,6 +3514,7 @@ void setup() {
     BringUpNetState();
     g_photos.begin(&g_storage);
     LoadTimeZone();
+    LoadScreenSetup();
     if (g_power.wakeInfo().reason != hal::WakeReason::kColdBoot) {
       // A real wake, not a cold boot: the panel's RAM contents are unknown
       // on a cold boot, but on a real wake the last frame this same device
@@ -3360,6 +3523,9 @@ void setup() {
     }
   }
 
+  // Before the panel comes up: begin() pushes the rotation into the
+  // controller, and a restored frame is written in that same orientation.
+  ApplyScreenSetup();
   const bool display_ok = g_display.begin();
   g_state.eink = display_ok ? ui::TestResult::kPass : ui::TestResult::kFail;
   g_state.framebuffer_in_psram = g_display.framebufferInPsram();

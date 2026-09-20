@@ -21,6 +21,7 @@
 
 #include "board/board_crowpanel_579.h"
 #include "gfx/canvas.h"
+#include "util/screen_setup.h"
 #include "util/battery.h"
 #include "util/debouncer.h"
 #include "util/idle_policy.h"
@@ -736,6 +737,94 @@ void test_touch_survives_millis_wraparound() {
   TEST_ASSERT_EQUAL(util::TouchEvent::kLongPress, t.update(true, 200, 200, 0x200u));
 }
 
+
+// ---------------------------------------------------------------------------
+// The saved screen/touch orientation (util/screen_setup.h)
+//
+// Two numbers on the card that decide which way up the picture is and which
+// way round touch is. They are written by a screen the user drives by hand,
+// read at boot before the panel comes up, and may be edited by a human with a
+// card reader -- so the parser has to survive whatever comes back.
+// ---------------------------------------------------------------------------
+
+void test_screen_setup_round_trips_through_text() {
+  for (uint8_t touch = 0; touch < util::kTouchOrientationCount; ++touch) {
+    for (uint8_t rotation = 0; rotation <= 2; rotation += 2) {
+      util::ScreenSetup written;
+      written.rotation = rotation;
+      written.touch_orientation = touch;
+
+      char text[util::kScreenSetupMaxChars + 1] = {0};
+      const uint8_t n = util::FormatScreenSetup(written, text, sizeof(text) - 1);
+      TEST_ASSERT_TRUE(n > 0);
+      TEST_ASSERT_EQUAL_UINT8(n, static_cast<uint8_t>(strlen(text)));
+
+      util::ScreenSetup read;
+      TEST_ASSERT_TRUE(util::ParseScreenSetup(text, &read));
+      TEST_ASSERT_EQUAL_UINT8(rotation, read.rotation);
+      TEST_ASSERT_EQUAL_UINT8(touch, read.touch_orientation);
+    }
+  }
+}
+
+void test_screen_setup_flags_unpack_the_way_the_mapping_expects() {
+  util::ScreenSetup setup;
+  setup.touch_orientation = 0;
+  TEST_ASSERT_FALSE(setup.swapXY());
+  TEST_ASSERT_FALSE(setup.invertX());
+  TEST_ASSERT_FALSE(setup.invertY());
+
+  setup.touch_orientation = 7;
+  TEST_ASSERT_TRUE(setup.swapXY());
+  TEST_ASSERT_TRUE(setup.invertX());
+  TEST_ASSERT_TRUE(setup.invertY());
+
+  setup.touch_orientation = 4;
+  TEST_ASSERT_FALSE(setup.swapXY());
+  TEST_ASSERT_FALSE(setup.invertX());
+  TEST_ASSERT_TRUE(setup.invertY());
+}
+
+void test_screen_setup_keeps_defaults_when_the_file_is_rubbish() {
+  util::ScreenSetup setup;
+  setup.rotation = 2;
+  setup.touch_orientation = 5;
+
+  // Nothing usable in any of these: the values already in `setup` stand,
+  // which at boot means the board header's build-time defaults.
+  TEST_ASSERT_FALSE(util::ParseScreenSetup("", &setup));
+  TEST_ASSERT_FALSE(util::ParseScreenSetup("\n\n", &setup));
+  TEST_ASSERT_FALSE(util::ParseScreenSetup("nonsense", &setup));
+  TEST_ASSERT_FALSE(util::ParseScreenSetup("rotation=", &setup));
+  TEST_ASSERT_FALSE(util::ParseScreenSetup("rotation=1 touch=9", &setup));
+  TEST_ASSERT_FALSE(util::ParseScreenSetup("myrotation=0 mytouch=0", &setup));
+  TEST_ASSERT_EQUAL_UINT8(2, setup.rotation);
+  TEST_ASSERT_EQUAL_UINT8(5, setup.touch_orientation);
+
+  // A half-valid line keeps the half that parsed.
+  TEST_ASSERT_TRUE(util::ParseScreenSetup("rotation=0 touch=99", &setup));
+  TEST_ASSERT_EQUAL_UINT8(0, setup.rotation);
+  TEST_ASSERT_EQUAL_UINT8(5, setup.touch_orientation);
+}
+
+void test_screen_setup_tolerates_hand_editing() {
+  util::ScreenSetup setup;
+  TEST_ASSERT_TRUE(util::ParseScreenSetup("touch=3\nrotation=2\n", &setup));
+  TEST_ASSERT_EQUAL_UINT8(2, setup.rotation);
+  TEST_ASSERT_EQUAL_UINT8(3, setup.touch_orientation);
+
+  util::ScreenSetup no_newline;
+  TEST_ASSERT_TRUE(util::ParseScreenSetup("rotation=2 touch=1", &no_newline));
+  TEST_ASSERT_EQUAL_UINT8(2, no_newline.rotation);
+  TEST_ASSERT_EQUAL_UINT8(1, no_newline.touch_orientation);
+
+  util::ScreenSetup with_extra;
+  TEST_ASSERT_TRUE(
+      util::ParseScreenSetup("# saved by the device\nrotation=0\ttouch=6\n",
+                             &with_extra));
+  TEST_ASSERT_EQUAL_UINT8(6, with_extra.touch_orientation);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
 
@@ -797,6 +886,11 @@ int main(int, char**) {
   RUN_TEST(test_touch_a_finger_returning_to_the_start_is_still_a_slide);
   RUN_TEST(test_touch_second_tap_starts_clean_after_the_first);
   RUN_TEST(test_touch_survives_millis_wraparound);
+
+  RUN_TEST(test_screen_setup_round_trips_through_text);
+  RUN_TEST(test_screen_setup_flags_unpack_the_way_the_mapping_expects);
+  RUN_TEST(test_screen_setup_keeps_defaults_when_the_file_is_rubbish);
+  RUN_TEST(test_screen_setup_tolerates_hand_editing);
 
   return UNITY_END();
 }

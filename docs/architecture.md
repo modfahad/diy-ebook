@@ -482,6 +482,45 @@ each is a row where it belongs.
   until the touch orientation is confirmed on real glass, a stray mapping
   should cost nothing.
 
+## 5e. Which way up, and which way round: the setup screen
+
+Two facts about this device cannot be known at build time. Whether the board
+sits upside down in its case is a `TODO(hw)` in the board header. Which way
+round the touch layer reports its axes is worse: a laminated panel can swap or
+mirror them, the spec sheet does not say, and there are eight possibilities.
+
+`ui::SetupScreen` (Options -> "Screen and touch setup", from the clock screen
+or the hardware test screen) settles both on the device:
+
+- **MENU turns the picture** 180 degrees, applied to the panel immediately,
+  because looking at it is the only way to tell which way is up.
+- **OK, or the wheel, steps through the eight touch orientations.**
+- **Two targets, not one.** A single corner cannot distinguish swapped axes
+  from straight ones -- (0,0) maps to (0,0) either way. Target 2 sits in the
+  opposite top corner, which a swap sends to the bottom of the screen, so
+  filling in both means the orientation is genuinely right. Changing the
+  orientation clears both, because those hits belonged to the old one.
+- **EXIT saves and leaves.** Nothing is written until then, which is what
+  makes trying all eight safe.
+
+It is deliberately not a list of rows: a wrong touch orientation is exactly
+the situation where a list cannot be used, so every control is a physical
+button and touch only ever reports where it thinks the finger went.
+
+`util::ScreenSetup` is the saved form -- one line of text, `rotation=2
+touch=5`, in `/DEVICE/screen.txt`, read at boot before the panel comes up. It
+is text because the person most likely to read it is someone debugging a
+device with a card reader and no compiler. Anything unparseable falls back to
+the board header's defaults rather than to an unusable screen.
+
+The two settings stopped being compile-time constants to make this work:
+`drivers::Epd750Display::setRotation()` replaces the four places that read
+`board::kDisplayRotation` (including the partial-window and restored-frame
+paths, which map canvas coordinates to panel-native ones), and
+`drivers::InputManager::setTouchOrientation()` replaces the touch mapping's
+three flags. Both keep the board header's values as their defaults, so a
+device with no `/DEVICE/screen.txt` behaves exactly as it did before.
+
 ## 6. Storage layout
 
 Committed now (spec sections 15/16) so later milestones do not each invent

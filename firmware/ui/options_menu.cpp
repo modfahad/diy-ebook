@@ -76,6 +76,7 @@ void OptionsMenu::build(const MenuContext& context, OptionsMenuState* state) {
         Add(state, MenuAction::kContinueReading, "Continue reading");
       }
       Add(state, MenuAction::kTransferMode, TransferLabel(context));
+      Add(state, MenuAction::kScreenSetup, "Screen and touch setup");
       Add(state, MenuAction::kRedraw, "Redraw the screen");
       break;
 
@@ -96,9 +97,18 @@ void OptionsMenu::build(const MenuContext& context, OptionsMenuState* state) {
 
     case MenuScreen::kSelfTest:
       state->title = "Hardware test options";
+      Add(state, MenuAction::kScreenSetup, "Screen and touch setup");
       Add(state, MenuAction::kTransferMode, TransferLabel(context));
       Add(state, MenuAction::kOpenLibrary, "Library");
       Add(state, MenuAction::kFactoryReset, "Factory reset");
+      break;
+
+    case MenuScreen::kScreenSetup:
+      // The setup screen's own buttons do the work; its menu is a way out
+      // and nothing else, so a wrong touch orientation cannot trap anyone.
+      state->title = "Setup options";
+      Add(state, MenuAction::kSelfTest, "Hardware test");
+      Add(state, MenuAction::kOpenLibrary, "Library");
       break;
 
     case MenuScreen::kReader:

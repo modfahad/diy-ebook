@@ -145,6 +145,10 @@ constexpr uint16_t kMaxPhotos = 200;
 // POSIX TZ rule, written by POST /api/device/time. Absent means UTC.
 constexpr const char* kFileTimeZone = "/DEVICE/timezone.txt";
 
+// Which way up the picture is and which way round touch is, written by the
+// setup screen (util::ScreenSetup). Absent means the board header's defaults.
+constexpr const char* kFileScreenSetup = "/DEVICE/screen.txt";
+
 // If Wi-Fi is lost in table-clock mode, try to reconnect this often.
 constexpr uint32_t kWifiReconnectIntervalMs = 30000;
 

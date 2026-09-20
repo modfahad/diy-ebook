@@ -39,6 +39,7 @@ enum class MenuScreen : uint8_t {
   kQuran,
   kSurahPicker,
   kBookmarks,
+  kScreenSetup,        // the setup screen has its own short menu
 };
 
 enum class MenuAction : uint8_t {
@@ -56,6 +57,7 @@ enum class MenuAction : uint8_t {
   kNextChapter,
   kCloseBook,          // back to the library, releasing whatever is open
   kSelfTest,
+  kScreenSetup,        // ui::SetupScreen: picture and touch orientation
   kTransferMode,       // toggles: the label says which way
   kRedraw,
   kFactoryReset,       // asks first -- see BuildConfirm()

@@ -25,6 +25,13 @@ class InputManager : public hal::IInput {
   // happens when the panel is fitted but its GT911 never answers.
   void attachTouch(hal::ITouchPanel* touch) { touch_ = touch; }
 
+  // The three touch orientation flags, packed (bit 0 swap x/y, bit 1 mirror
+  // x, bit 2 mirror y), as util::ScreenSetup stores them. Starts from the
+  // board header's defaults; the setup screen changes it while running, which
+  // is how the right one gets found without a reflash.
+  void setTouchOrientation(uint8_t packed);
+  uint8_t touchOrientation() const;
+
   bool begin() override;
   void poll(uint32_t now_ms) override;
   bool nextEvent(hal::InputEvent* out) override;

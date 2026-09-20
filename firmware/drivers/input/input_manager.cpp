@@ -47,6 +47,13 @@ bool InputManager::begin() {
   tap_.begin(app::kTouchLongPressMs, app::kTouchSlopPx);
   touch_down_ = false;
   touch_frame_ms_ = millis();
+  // Keep whatever orientation was set before this begin() -- the saved one is
+  // loaded off the card at boot, and begin() runs again on every wake.
+  const uint8_t orientation = started_ ? touchOrientation()
+                                       : static_cast<uint8_t>(
+                                             (board::kTouchSwapXY ? 1 : 0) |
+                                             (board::kTouchInvertX ? 2 : 0) |
+                                             (board::kTouchInvertY ? 4 : 0));
   mapping_ = util::TouchMapping();
   if (touch_ != nullptr && touch_->begin()) {
     const hal::TouchInfo info = touch_->info();
@@ -54,9 +61,7 @@ bool InputManager::begin() {
     mapping_.raw_height = info.raw_height;
     mapping_.out_width = board::kWidth;
     mapping_.out_height = board::kHeight;
-    mapping_.swap_xy = board::kTouchSwapXY;
-    mapping_.invert_x = board::kTouchInvertX;
-    mapping_.invert_y = board::kTouchInvertY;
+    setTouchOrientation(orientation);
     diag_.touch_present = true;
   }
 
@@ -120,6 +125,18 @@ void InputManager::pumpButton(util::Button& button, hal::InputSource source,
     default:
       break;
   }
+}
+
+void InputManager::setTouchOrientation(uint8_t packed) {
+  mapping_.swap_xy = (packed & 1) != 0;
+  mapping_.invert_x = (packed & 2) != 0;
+  mapping_.invert_y = (packed & 4) != 0;
+}
+
+uint8_t InputManager::touchOrientation() const {
+  return static_cast<uint8_t>((mapping_.swap_xy ? 1 : 0) |
+                              (mapping_.invert_x ? 2 : 0) |
+                              (mapping_.invert_y ? 4 : 0));
 }
 
 // One finger's worth of meaning out of whatever the panel reports. The GT911

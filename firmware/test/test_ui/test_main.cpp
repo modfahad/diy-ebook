@@ -38,6 +38,8 @@
 #include "ui/reader_screen.h"
 #include "ui/selftest_screen.h"
 #include "ui/surah_picker_screen.h"
+#include "ui/setup_screen.h"
+#include "util/screen_setup.h"
 #include "util/ascii_fold.h"
 #include "util/text_pager.h"
 
@@ -1636,6 +1638,141 @@ void test_menu_renders_inside_the_panel() {
   TEST_ASSERT_EQUAL_UINT32(0, canvas.clippedPixels());
 }
 
+
+// ---------------------------------------------------------------------------
+// Screen and touch setup (ui/setup_screen.h)
+//
+// The screen that answers "which way round is the touch layer?" on the device
+// instead of by reflashing. Its whole promise is that hitting both targets
+// means the orientation is right -- so the tests are about the targets.
+// ---------------------------------------------------------------------------
+
+void test_setup_targets_are_apart_in_both_axes() {
+  // One corner cannot tell a swapped pair of axes from a straight one, so the
+  // second target must differ in x AND agree in y -- swapping then sends it
+  // somewhere else entirely.
+  TEST_ASSERT_EQUAL_INT(1, ui::SetupScreen::targetAt(ui::kSetupTarget1X + 10,
+                                                     ui::kSetupTarget1Y + 10));
+  TEST_ASSERT_EQUAL_INT(2, ui::SetupScreen::targetAt(ui::kSetupTarget2X + 10,
+                                                     ui::kSetupTarget2Y + 10));
+  TEST_ASSERT_EQUAL_INT(0, ui::SetupScreen::targetAt(400, 240));
+  TEST_ASSERT_EQUAL_INT(0, ui::SetupScreen::targetAt(0, 0));
+  TEST_ASSERT_TRUE(ui::kSetupTarget2X > ui::kSetupTarget1X + ui::kSetupTargetSize);
+  TEST_ASSERT_EQUAL_INT(ui::kSetupTarget1Y, ui::kSetupTarget2Y);
+}
+
+void test_setup_records_taps_and_needs_both_targets() {
+  ui::SetupState state;
+  TEST_ASSERT_FALSE(ui::SetupScreen::bothTargetsHit(state));
+
+  ui::SetupScreen::noteTap(&state, ui::kSetupTarget1X + 5, ui::kSetupTarget1Y + 5);
+  TEST_ASSERT_TRUE(state.has_tap);
+  TEST_ASSERT_TRUE(state.target1_hit);
+  TEST_ASSERT_FALSE(ui::SetupScreen::bothTargetsHit(state));
+
+  // A tap in the middle of the screen is recorded but hits nothing.
+  ui::SetupScreen::noteTap(&state, 400, 300);
+  TEST_ASSERT_EQUAL_INT16(400, state.tap_x);
+  TEST_ASSERT_FALSE(state.target2_hit);
+
+  ui::SetupScreen::noteTap(&state, ui::kSetupTarget2X + 5, ui::kSetupTarget2Y + 5);
+  TEST_ASSERT_TRUE(ui::SetupScreen::bothTargetsHit(state));
+  TEST_ASSERT_EQUAL_UINT32(3, state.tap_count);
+}
+
+void test_setup_changing_orientation_forgets_the_old_hits() {
+  ui::SetupState state;
+  ui::SetupScreen::noteTap(&state, ui::kSetupTarget1X + 5, ui::kSetupTarget1Y + 5);
+  ui::SetupScreen::noteTap(&state, ui::kSetupTarget2X + 5, ui::kSetupTarget2Y + 5);
+  TEST_ASSERT_TRUE(ui::SetupScreen::bothTargetsHit(state));
+
+  // Those hits were under the old orientation; keeping them would claim the
+  // job is done when the mapping just changed underneath.
+  ui::SetupScreen::nextTouchOrientation(&state);
+  TEST_ASSERT_EQUAL_UINT8(1, state.touch_orientation);
+  TEST_ASSERT_FALSE(state.target1_hit);
+  TEST_ASSERT_FALSE(state.target2_hit);
+  TEST_ASSERT_FALSE(state.has_tap);
+}
+
+void test_setup_orientation_cycles_through_all_eight() {
+  ui::SetupState state;
+  for (uint8_t i = 0; i < util::kTouchOrientationCount; ++i) {
+    TEST_ASSERT_EQUAL_UINT8(i, state.touch_orientation);
+    ui::SetupScreen::nextTouchOrientation(&state);
+  }
+  TEST_ASSERT_EQUAL_UINT8(0, state.touch_orientation);
+}
+
+void test_setup_flip_toggles_between_the_two_landscape_rotations() {
+  ui::SetupState state;
+  TEST_ASSERT_EQUAL_UINT8(0, state.rotation);
+  ui::SetupScreen::flipPicture(&state);
+  TEST_ASSERT_EQUAL_UINT8(2, state.rotation);
+  ui::SetupScreen::flipPicture(&state);
+  TEST_ASSERT_EQUAL_UINT8(0, state.rotation);
+}
+
+void test_setup_turning_the_picture_forgets_the_old_hits_too() {
+  // The trap this exists to stop: hit both boxes, then turn the picture the
+  // right way up, and the screen would still claim the touch orientation was
+  // settled -- while the flip has just moved every position 180 degrees under
+  // a touch layer that did not move at all.
+  ui::SetupState state;
+  ui::SetupScreen::noteTap(&state, ui::kSetupTarget1X + 5, ui::kSetupTarget1Y + 5);
+  ui::SetupScreen::noteTap(&state, ui::kSetupTarget2X + 5, ui::kSetupTarget2Y + 5);
+  TEST_ASSERT_TRUE(ui::SetupScreen::bothTargetsHit(state));
+
+  ui::SetupScreen::flipPicture(&state);
+  TEST_ASSERT_FALSE(ui::SetupScreen::bothTargetsHit(state));
+  TEST_ASSERT_FALSE(state.has_tap);
+  // The orientation itself is untouched: only what was proven about it goes.
+  TEST_ASSERT_EQUAL_UINT8(0, state.touch_orientation);
+}
+
+void test_setup_renders_inside_the_panel() {
+  gfx::Canvas canvas = MakeCanvas();
+  ui::SetupState state;
+  state.touch_present = true;
+  ui::SetupScreen::render(canvas, state);
+  TEST_ASSERT_EQUAL_UINT32(0, canvas.clippedPixels());
+
+  // With a tap mark at the very edge, both targets hit, and the longest
+  // status line: still nothing off the canvas.
+  state.touch_orientation = 7;
+  ui::SetupScreen::noteTap(&state, 799, 479);
+  state.target1_hit = true;
+  state.target2_hit = true;
+  ui::SetupScreen::render(canvas, state);
+  TEST_ASSERT_EQUAL_UINT32(0, canvas.clippedPixels());
+
+  // And with no touch panel at all.
+  ui::SetupState plain;
+  ui::SetupScreen::render(canvas, plain);
+  TEST_ASSERT_EQUAL_UINT32(0, canvas.clippedPixels());
+}
+
+void test_menu_offers_the_setup_screen_where_it_can_be_reached() {
+  ui::MenuContext home;
+  home.screen = ui::MenuScreen::kHome;
+  ui::OptionsMenuState state;
+  ui::OptionsMenu::build(home, &state);
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kScreenSetup));
+
+  ui::MenuContext self_test;
+  self_test.screen = ui::MenuScreen::kSelfTest;
+  ui::OptionsMenu::build(self_test, &state);
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kScreenSetup));
+
+  // The setup screen's own menu is a way out and nothing else: offering it
+  // again from inside itself would go nowhere.
+  ui::MenuContext setup;
+  setup.screen = ui::MenuScreen::kScreenSetup;
+  ui::OptionsMenu::build(setup, &state);
+  TEST_ASSERT_FALSE(MenuHas(state, ui::MenuAction::kScreenSetup));
+  TEST_ASSERT_TRUE(MenuHas(state, ui::MenuAction::kBack));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_surah_picker_row_count_is_zero_with_no_package_open);
@@ -1701,6 +1838,15 @@ int main(int, char**) {
   RUN_TEST(test_menu_selection_wraps_both_ways);
   RUN_TEST(test_menu_rowAt_finds_the_row_under_a_finger);
   RUN_TEST(test_menu_renders_inside_the_panel);
+
+  RUN_TEST(test_setup_targets_are_apart_in_both_axes);
+  RUN_TEST(test_setup_records_taps_and_needs_both_targets);
+  RUN_TEST(test_setup_changing_orientation_forgets_the_old_hits);
+  RUN_TEST(test_setup_orientation_cycles_through_all_eight);
+  RUN_TEST(test_setup_flip_toggles_between_the_two_landscape_rotations);
+  RUN_TEST(test_setup_turning_the_picture_forgets_the_old_hits_too);
+  RUN_TEST(test_setup_renders_inside_the_panel);
+  RUN_TEST(test_menu_offers_the_setup_screen_where_it_can_be_reached);
 
   return UNITY_END();
 }
