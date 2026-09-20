@@ -3170,10 +3170,14 @@ void HandleRotate(int16_t delta) {
 // Where a tap landed, and what that means on this screen. Taps only ever do
 // what a button already does: open the highlighted thing, or turn a page.
 void HandleTouchTap(int16_t x, int16_t y) {
-  // The strip along the top is the menu, on every screen that is not already
-  // the menu or the setup screen. Without it a finger can turn pages but
-  // never leave the book.
-  if (g_screen_mode != ScreenMode::kHome &&
+  // The strip along the top is the menu on the screens that have a header to
+  // aim at. Reading screens are left out on purpose: their whole left and
+  // right sides turn pages, top to bottom, and the middle is their menu --
+  // nothing vertical should change the page.
+  const bool reading = g_screen_mode == ScreenMode::kReader ||
+                       g_screen_mode == ScreenMode::kPages ||
+                       g_screen_mode == ScreenMode::kQuran;
+  if (!reading && g_screen_mode != ScreenMode::kHome &&
       g_screen_mode != ScreenMode::kScreenSetup &&
       util::InMenuBand(y, app::kTouchMenuBandPx)) {
     drivers::Logf("[tap] %s: top strip -> options menu\n", ScreenName());
@@ -3253,10 +3257,15 @@ void HandleTouchTap(int16_t x, int16_t y) {
       const int8_t delta =
           util::PageTapDelta(x, board::kWidth, app::kTouchPageEdgePx);
       if (delta == 0) {
-        drivers::Logf(
-            "[tap] reader: x=%d is the middle band (%u..%u), no page turn\n",
-            static_cast<int>(x), static_cast<unsigned>(app::kTouchPageEdgePx),
-            static_cast<unsigned>(board::kWidth - app::kTouchPageEdgePx));
+        // The middle of a reading screen is the menu, the way it is on every
+        // e-reader: left side back, right side forward, middle for getting
+        // out. It was inert at first, to protect a hand resting on the
+        // glass -- but util::TapTracker already refuses a tap that slides,
+        // and watching someone read showed the real cost of an inert middle:
+        // they tapped it again and again looking for a way out of the book.
+        drivers::Logf("[tap] reader: x=%d is the middle -> options menu\n",
+                      static_cast<int>(x));
+        OpenOptionsMenu();
         break;
       }
       drivers::Logf("[tap] reader: x=%d -> page %s\n", static_cast<int>(x),

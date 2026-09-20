@@ -231,7 +231,8 @@ touch orientation being right.
 | Scroll a long list down, then tap the top row | The row you tapped opens — not the one that was there before scrolling |
 | In a book, tap the right-hand edge | Next page |
 | In a book, tap the left-hand edge | Previous page |
-| Tap the middle of the page | **Nothing** — that band is for the hand holding the device |
+| Tap the middle of the page | The options menu opens - the way out of a book by finger |
+| Tap the top-right and the bottom-right of a page | Both turn forward: the sides work the full height, nothing vertical matters |
 | Same three taps in a picture book and in the Quran | Same behaviour; the Quran goes forward and back by screen |
 | Tap a row in Saved places | It opens that place, same as OK |
 | Scroll Saved places past the twelfth row, then tap the top row | The row you tapped opens, not the one that used to be there |
