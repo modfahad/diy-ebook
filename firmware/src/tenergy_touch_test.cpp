@@ -87,6 +87,7 @@ uint32_t g_errors = 0;
 uint32_t g_touches = 0;
 uint32_t g_last_health_ms = 0;
 bool g_last_int_high = true;
+uint32_t g_last_int_change_ms = 0;
 bool g_down = false;
 
 void Log(const char* format, ...) {
@@ -139,7 +140,11 @@ void StrapAndReset(bool int_high) {
   delay(10);
   digitalWrite(kInt, LOW);
   delay(50);
-  pinMode(kInt, INPUT);
+  // INPUT_PULLUP, not INPUT: the GT911 pulls this line down to signal and
+  // leaves it alone otherwise, so without a pull-up an unconnected pin just
+  // reports noise -- which it did on the first run here, thousands of
+  // transitions a minute with no chip attached.
+  pinMode(kInt, INPUT_PULLUP);
   delay(50);
 }
 
@@ -276,6 +281,12 @@ void PollTouch() {
 
 void ReportHealth() {
   const bool int_high = digitalRead(kInt) != LOW;
+  if (g_address == 0) {
+    Log("health: NO CHIP -- is the touch ribbon wired to SDA%d/SCL%d, with "
+        "3V3 and GND? Send any character to probe again.",
+        kSda, kScl);
+    return;
+  }
   Log("health: chip=%s frames=%lu i2c_errors=%lu touches=%lu INT=%s",
       g_address != 0 ? "ok" : "MISSING", static_cast<unsigned long>(g_frames),
       static_cast<unsigned long>(g_errors),
@@ -324,10 +335,16 @@ void loop() {
 
   PollTouch();
 
-  const bool int_high = digitalRead(kInt) != LOW;
-  if (int_high != g_last_int_high) {
-    g_last_int_high = int_high;
-    Log("INT went %s", int_high ? "HIGH" : "LOW");
+  // Worth watching only when there is a chip to drive it: an empty pin
+  // flapping is noise, and it buried the useful lines on the first run.
+  if (g_address != 0) {
+    const bool int_high = digitalRead(kInt) != LOW;
+    if (int_high != g_last_int_high &&
+        static_cast<uint32_t>(millis() - g_last_int_change_ms) > 50) {
+      g_last_int_change_ms = millis();
+      g_last_int_high = int_high;
+      Log("INT went %s", int_high ? "HIGH" : "LOW");
+    }
   }
 
   const uint32_t now = millis();
