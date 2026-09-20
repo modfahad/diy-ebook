@@ -15,6 +15,8 @@ namespace {
 // inside them are little-endian.
 constexpr uint16_t kRegProductId = 0x8140;  // 4 ASCII bytes, then fw, then res
 constexpr uint16_t kRegStatus    = 0x814E;  // bit 7 = a frame is ready
+constexpr uint16_t kRegCommand   = 0x8040;  // 0x05 = sleep
+constexpr uint8_t kCommandSleep  = 0x05;
 // Point data. 8 bytes per point: track id, x, y, size (all u16 LE), reserved.
 // Published GT911 register maps disagree about whether point 1 starts here or
 // at 0x8150; this chip settled it on the board on 2026-09-19 (0x814F -- see
@@ -124,6 +126,16 @@ bool TouchGt911::begin() {
        static_cast<unsigned>(info_.raw_width),
        static_cast<unsigned>(info_.raw_height));
   return true;
+}
+
+bool TouchGt911::sleep() {
+  if (!info_.present) return false;
+  // There is no wake command over I2C -- the datasheet's way back is INT or
+  // RST, and begin() already toggles RST on every wake, so nothing here has
+  // to remember that the chip was asleep.
+  const bool ok = writeRegister(kRegCommand, kCommandSleep);
+  Logf("[touch] %s\n", ok ? "asleep" : "sleep command failed");
+  return ok;
 }
 
 bool TouchGt911::poll(hal::TouchFrame* out) {

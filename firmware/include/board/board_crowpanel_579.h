@@ -182,6 +182,14 @@ constexpr uint64_t kWakeMask = PinMask(kBtnMenu) | PinMask(kBtnExit) |
                                PinMask(kEncoderSw) | PinMask(kEncoderA) |
                                PinMask(kEncoderB);
 
+// The touch layer's INT line, for waking on a tap (app::kWakeOnTouch). It is
+// a separate mask because a chip that can notice a finger is a chip that is
+// still scanning: arming this costs the GT911's sleep current, so it is a
+// choice rather than the default.
+constexpr uint64_t kWakeMaskWithTouch = kWakeMask | PinMask(kTouchInt);
+
+static_assert(kTouchInt >= 0 && kTouchInt <= kMaxRtcGpio,
+              "touch INT not RTC-capable -- it cannot wake the device");
 static_assert(kBtnMenu   >= 0 && kBtnMenu   <= kMaxRtcGpio, "MENU not RTC-capable");
 static_assert(kBtnExit   >= 0 && kBtnExit   <= kMaxRtcGpio, "EXIT not RTC-capable");
 static_assert(kEncoderSw >= 0 && kEncoderSw <= kMaxRtcGpio, "ENC SW not RTC-capable");

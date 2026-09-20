@@ -35,6 +35,25 @@ constexpr uint16_t kTouchStaleMs = 750;
 // nothing, for the thumb of whoever is holding it.
 constexpr uint16_t kTouchPageEdgePx = 240;
 
+// What the touch layer does while the device sleeps. These two are the same
+// decision from opposite ends, and cannot both be had:
+//
+//   kTouchSleepWithScreen  the GT911 is told to sleep (~100 uA instead of the
+//                          ~8 mA it draws scanning). It notices nothing until
+//                          the device is woken by a button.
+//   kWakeOnTouch           the GT911 keeps scanning so a tap on the glass can
+//                          pull its INT line and wake the device through
+//                          EXT1 (board::kWakeMaskWithTouch).
+//
+// Sleeping wins by default. Waking on a tap is off until two things are
+// confirmed on the bench, both of which the setup screen now shows: that INT
+// idles HIGH and pulses LOW when touched (EXT1 here is ANY_LOW, so the wrong
+// polarity means a device that wakes instantly and forever), and that the
+// extra draw is acceptable on a battery this device does not have a gauge
+// for yet. See board-test-checklist.md.
+constexpr bool kTouchSleepWithScreen = true;
+constexpr bool kWakeOnTouch = false;
+
 // --- rotary coalescing (spec section 14) -----------------------------------
 // Do not repaint until the user has paused this long, or this many detents
 // have accumulated.

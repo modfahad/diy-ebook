@@ -45,6 +45,14 @@ struct SetupState {
   uint32_t tap_count = 0;
 
   bool saved = false;             // the last EXIT wrote the card
+
+  // The touch layer's INT line as the device reads it right now, and whether
+  // waking on a tap is armed. EXT1 wake is ANY_LOW, so INT must idle HIGH and
+  // go LOW under a finger; the wrong polarity would be a device that wakes
+  // the instant it sleeps, forever. Watching this line while tapping is how
+  // that gets confirmed before app::kWakeOnTouch is turned on.
+  bool int_level_high = true;
+  bool wake_on_touch = false;
 };
 
 class SetupScreen {

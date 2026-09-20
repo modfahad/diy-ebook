@@ -869,6 +869,34 @@ void test_page_tap_edges_are_the_configured_width() {
   TEST_ASSERT_EQUAL_INT8(1, util::PageTapDelta(700, 800, 100));
 }
 
+
+void test_wake_on_touch_mask_adds_the_int_pin_and_nothing_else() {
+  // Waking on a tap must not quietly widen what else can wake the device:
+  // the touch mask is the front panel plus exactly one more pin.
+  TEST_ASSERT_TRUE((board::kWakeMaskWithTouch & board::kWakeMask) ==
+                   board::kWakeMask);
+  const uint64_t added = board::kWakeMaskWithTouch & ~board::kWakeMask;
+  TEST_ASSERT_TRUE(added == (1ULL << board::kTouchInt));
+
+  // EXT1 wake only works on RTC pads, and this one has to be a wake source
+  // for tap-to-wake to be possible at all.
+  TEST_ASSERT_TRUE(board::kTouchInt <= board::kMaxRtcGpio);
+
+  // The other three touch lines are not wake sources: RST is an output, and
+  // SDA/SCL idle high on a bus that a passing finger does not drive.
+  TEST_ASSERT_TRUE((board::kWakeMaskWithTouch & (1ULL << board::kTouchRst)) == 0);
+  TEST_ASSERT_TRUE((board::kWakeMaskWithTouch & (1ULL << board::kTouchSda)) == 0);
+  TEST_ASSERT_TRUE((board::kWakeMaskWithTouch & (1ULL << board::kTouchScl)) == 0);
+
+  // Every pin in the mask has to be RTC-capable, or it is in a wake mask
+  // that cannot wake anything -- the same guarantee the front-panel test
+  // makes, extended to the pin this adds.
+  for (int pin = 0; pin <= 63; ++pin) {
+    if ((board::kWakeMaskWithTouch & (1ULL << pin)) == 0) continue;
+    TEST_ASSERT_TRUE(pin <= board::kMaxRtcGpio);
+  }
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
 
@@ -894,6 +922,7 @@ int main(int, char**) {
 
   RUN_TEST(test_every_wake_pin_is_rtc_capable);
   RUN_TEST(test_wake_mask_covers_exactly_the_front_panel);
+  RUN_TEST(test_wake_on_touch_mask_adds_the_int_pin_and_nothing_else);
 
   RUN_TEST(test_canvas_clear_fills_the_whole_buffer);
   RUN_TEST(test_canvas_rotation_zero_maps_origin_to_first_bit);

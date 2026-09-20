@@ -1429,6 +1429,8 @@ void Repaint() {
     RenderPageBook();
   } else if (g_screen_mode == ScreenMode::kScreenSetup) {
     g_setup.touch_present = g_input.diagnostics().touch_present;
+    g_setup.int_level_high = digitalRead(board::kTouchInt) != LOW;
+    g_setup.wake_on_touch = app::kWakeOnTouch;
     ui::SetupScreen::render(g_display.canvas(), g_setup);
   } else if (g_screen_mode == ScreenMode::kBookmarks) {
     RenderBookmarks();
@@ -1553,6 +1555,10 @@ void GoToSleep() {
   Serial.flush();
   SaveQuranProgress();  // before storage unmounts below
   SavePageProgress();
+  // The touch layer sleeps with the screen unless it is the thing meant to
+  // wake us. Nothing has to undo this: begin() toggles RST on every wake,
+  // which is the datasheet's way back from sleep.
+  if (!app::kWakeOnTouch && app::kTouchSleepWithScreen) g_touch.sleep();
   g_display.end();
   g_storage.end();
   // Timer-armed, not indefinite: this is what lets a battery-sample wake
@@ -3555,6 +3561,11 @@ void setup() {
                   static_cast<unsigned long long>(g_battery_clock_ms));
     Serial.flush();
     g_power.deepSleepFor(app::kBatterySampleIntervalMs);  // does not return
+  }
+
+  if (app::kWakeOnTouch &&
+      (g_power.wakeInfo().pin_mask & board::PinMask(board::kTouchInt)) != 0) {
+    drivers::LogLine("[power] woken by a tap on the glass");
   }
 
   ++g_real_wake_count;  // see its declaration -- excludes the kTimer bail-out above

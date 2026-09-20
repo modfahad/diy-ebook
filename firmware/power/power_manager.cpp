@@ -2,8 +2,10 @@
 
 #include <Arduino.h>
 #include <driver/gpio.h>
+#include <driver/rtc_io.h>
 #include <esp_sleep.h>
 
+#include "app/app_config.h"
 #include "board/board_crowpanel_579.h"
 
 namespace drivers {
@@ -86,7 +88,19 @@ void PowerManager::prepareRailsForSleep() {
   // framework-arduinoespressif32/tools/sdk/esp32s3/include/esp_hw_support/
   // include/esp_sleep.h. Getting this wrong would mean the device sleeps once
   // and never wakes, so do not "simplify" it to ALL_LOW.
-  esp_sleep_enable_ext1_wakeup(board::kWakeMask, ESP_EXT1_WAKEUP_ANY_LOW);
+  //
+  // The touch layer's INT joins the mask only when app::kWakeOnTouch is set.
+  // It needs its pull-up held through sleep: the GT911 drives INT low to
+  // signal and otherwise leaves it high-impedance, and a floating pin in an
+  // ANY_LOW mask is a device that wakes on nothing at all, forever.
+  if (app::kWakeOnTouch) {
+    rtc_gpio_pullup_en(static_cast<gpio_num_t>(board::kTouchInt));
+    rtc_gpio_pulldown_dis(static_cast<gpio_num_t>(board::kTouchInt));
+    esp_sleep_enable_ext1_wakeup(board::kWakeMaskWithTouch,
+                                 ESP_EXT1_WAKEUP_ANY_LOW);
+  } else {
+    esp_sleep_enable_ext1_wakeup(board::kWakeMask, ESP_EXT1_WAKEUP_ANY_LOW);
+  }
 }
 
 void PowerManager::deepSleep() {

@@ -21,6 +21,11 @@ class TouchGt911 : public hal::ITouchPanel {
   hal::TouchInfo info() const override { return info_; }
   bool poll(hal::TouchFrame* out) override;
 
+  // Tells the chip to stop scanning (GT911 command 0x05). It answers nothing
+  // afterwards, including a finger, until begin() resets it -- which every
+  // wake does anyway. Returns false if the command could not be sent.
+  bool sleep();
+
   // Frames read since begin(), and I2C failures. The self-test screen shows
   // these; they are also what tells a "no finger registered" apart from a
   // "bus fell over".

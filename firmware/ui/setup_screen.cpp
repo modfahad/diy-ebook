@@ -168,6 +168,13 @@ void SetupScreen::render(gfx::Canvas& canvas, const SetupState& state) {
                "Wrong box filling in? OK tries the next way round.", kBodyScale);
   }
 
+  if (state.touch_present) {
+    snprintf(buf, sizeof(buf), "Touch INT line: %s now   Wake on tap: %s",
+             state.int_level_high ? "HIGH" : "LOW ",
+             state.wake_on_touch ? "on" : "off");
+    CenterText(canvas, kStatusY + 4 * kStatusStep, buf, kBodyScale);
+  }
+
   canvas.drawHLine(kRuleX, kFooterRuleY, kRuleW, gfx::kBlack);
   CenterText(canvas, kFooterTextY,
              "OK/WHEEL=next touch way   MENU=turn picture   EXIT=save and close",
