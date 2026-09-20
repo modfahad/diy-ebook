@@ -103,7 +103,18 @@ constexpr int kTouchSda = 15;
 constexpr int kTouchScl = 16;
 constexpr int kTouchInt = 17;
 constexpr int kTouchRst = 18;
-constexpr uint32_t kTouchI2cHz = 400000;
+// 100 kHz, not the GT911's 400 kHz maximum. The bus is hand-wired and has no
+// pull-up resistors of its own, so it runs on the ESP32's internal ones
+// (~45k). Against ~50 pF of wiring that is roughly a 1.8 us rise -- over the
+// 300 ns that 400 kHz allows, and the first board run (2026-09-19) did report
+// I2C read errors after the first panel refresh. At 100 kHz the same rise
+// eats 18% of a bit instead of 72%.
+//
+// This is margin, not a fix: 4.7k from SDA and from SCL to 3V3 brings the
+// rise to ~0.2 us and would be in spec even at 400 kHz. If errors persist
+// with this setting, fit them -- TouchGt911::errorCount() is the counter to
+// watch.
+constexpr uint32_t kTouchI2cHz = 100000;
 
 constexpr bool kTouchSwapXY  = false;  // TODO(hw)
 constexpr bool kTouchInvertX = false;  // TODO(hw)
