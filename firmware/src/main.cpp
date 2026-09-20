@@ -2718,6 +2718,12 @@ const char* InputActionName(hal::InputAction action) {
 void OpenOptionsMenu();  // defined with the options menu below
 
 void EnterScreenSetup() {
+  // Opening this screen is someone asking about touch, so ask the bus again:
+  // if it missed the boot probe, this is where they would find out.
+  if (!g_touch.present()) {
+    drivers::LogLine("[touch] not found at boot -- probing again");
+    g_input.retryTouch();
+  }
   g_setup = ui::SetupState();
   g_setup.rotation = g_screen_setup.rotation;
   g_setup.touch_orientation = g_screen_setup.touch_orientation;
@@ -2790,6 +2796,12 @@ bool HandleScreenSetupEvent(const hal::InputEvent& ev) {
 
     case hal::InputSource::kTouch:
       if (ev.action == hal::InputAction::kClick) {
+        const uint8_t target = ui::SetupScreen::targetAt(ev.x, ev.y);
+        drivers::Logf("[tap] setup: (%d,%d) -> %s\n", static_cast<int>(ev.x),
+                      static_cast<int>(ev.y),
+                      target == 1   ? "box 1"
+                      : target == 2 ? "box 2"
+                                    : "neither box");
         ui::SetupScreen::noteTap(&g_setup, ev.x, ev.y);
         g_dirty = true;
       }
@@ -3041,8 +3053,13 @@ bool HandleMenuEvent(const hal::InputEvent& ev) {
       if (ev.action == hal::InputAction::kClick) {
         const int row = ui::OptionsMenu::rowAt(g_menu, ev.x, ev.y);
         if (row >= 0) {
+          drivers::Logf("[tap] menu: row %d of %u\n", row,
+                        static_cast<unsigned>(g_menu.count));
           g_menu.selected = static_cast<uint8_t>(row);
           ChooseMenuRow();
+        } else {
+          drivers::Logf("[tap] menu: (%d,%d) is off the rows, ignored\n",
+                        static_cast<int>(ev.x), static_cast<int>(ev.y));
         }
         // A tap on the margins is ignored, not a close: with the touch
         // orientation still unconfirmed on hardware, a stray mapping should
@@ -3154,9 +3171,29 @@ void HandleRotate(int16_t delta) {
 // what a button already does: open the highlighted thing, or turn a page.
 void HandleTouchTap(int16_t x, int16_t y) {
   switch (g_screen_mode) {
+    case ScreenMode::kHome:
+      // The clock screen is all photo and clock, with nothing on it to aim
+      // at -- so a tap anywhere opens the options menu, which is where the
+      // library, continue reading and the rest are named. Found by watching
+      // someone tap this screen 80 times while the firmware logged "no tap
+      // targets yet" each time (2026-09-21).
+      drivers::LogLine("[tap] home: opening the options menu");
+      OpenOptionsMenu();
+      break;
+
     case ScreenMode::kLibrary: {
       const int32_t row = ui::LibraryScreen::rowAt(g_library_state, x, y);
-      if (row < 0) break;
+      if (row < 0) {
+        drivers::Logf("[tap] library: nothing at (%d,%d) -- %s\n",
+                      static_cast<int>(x), static_cast<int>(y),
+                      ui::LibraryScreen::isShelf(g_library_state)
+                          ? "between the covers"
+                          : "outside the rows");
+        break;
+      }
+      drivers::Logf("[tap] library: row %ld of %u, opening it\n",
+                    static_cast<long>(row),
+                    static_cast<unsigned>(ui::LibraryScreen::rowCount(g_library_state)));
       // Opening on the first tap, not selecting and waiting for a second:
       // every extra step here is another half-second refresh, and EXIT
       // undoes a mis-tap.
@@ -3168,7 +3205,13 @@ void HandleTouchTap(int16_t x, int16_t y) {
 
     case ScreenMode::kBookmarks: {
       const int32_t row = ui::BookmarksScreen::rowAt(g_bookmarks_state, x, y);
-      if (row < 0) break;
+      if (row < 0) {
+        drivers::Logf("[tap] saved places: nothing at (%d,%d)\n",
+                      static_cast<int>(x), static_cast<int>(y));
+        break;
+      }
+      drivers::Logf("[tap] saved places: row %ld, opening it\n",
+                    static_cast<long>(row));
       g_bookmarks_selected = static_cast<uint16_t>(row);
       OpenSelectedBookmark();
       break;
@@ -3181,7 +3224,13 @@ void HandleTouchTap(int16_t x, int16_t y) {
       g_surah_picker_state.selected = g_surah_picker_selected;
       g_surah_picker_state.scroll_top = g_surah_picker_scroll_top;
       const int32_t row = ui::SurahPickerScreen::rowAt(g_surah_picker_state, x, y);
-      if (row < 0) break;
+      if (row < 0) {
+        drivers::Logf("[tap] surah list: nothing at (%d,%d)\n",
+                      static_cast<int>(x), static_cast<int>(y));
+        break;
+      }
+      drivers::Logf("[tap] surah list: row %ld -> surah %ld\n",
+                    static_cast<long>(row), static_cast<long>(row + 1));
       g_surah_picker_selected = static_cast<uint16_t>(row);
       OpenSelectedSurah();
       break;
@@ -3192,20 +3241,38 @@ void HandleTouchTap(int16_t x, int16_t y) {
     case ScreenMode::kQuran: {
       const int8_t delta =
           util::PageTapDelta(x, board::kWidth, app::kTouchPageEdgePx);
-      if (delta != 0) HandleRotate(delta);
+      if (delta == 0) {
+        drivers::Logf(
+            "[tap] reader: x=%d is the middle band (%u..%u), no page turn\n",
+            static_cast<int>(x), static_cast<unsigned>(app::kTouchPageEdgePx),
+            static_cast<unsigned>(board::kWidth - app::kTouchPageEdgePx));
+        break;
+      }
+      drivers::Logf("[tap] reader: x=%d -> page %s\n", static_cast<int>(x),
+                    delta > 0 ? "forward" : "back");
+      HandleRotate(delta);
       break;
     }
 
     default:
-      // Every other screen is driven by the wheel and the buttons for now.
+      // Every other screen is driven by the wheel and the buttons for now --
+      // say so rather than leaving a tap looking like a dead panel.
+      drivers::Logf("[tap] %s: this screen has no tap targets yet\n",
+                    ScreenName());
       break;
   }
 }
 
 void HandleEvent(const hal::InputEvent& ev) {
   if (ev.source == hal::InputSource::kTouch) {
-    drivers::Logf("[input] TOUCH %s at (%d,%d)\n", InputActionName(ev.action),
-                  static_cast<int>(ev.x), static_cast<int>(ev.y));
+    const hal::InputDiagnostics diag = g_input.diagnostics();
+    drivers::Logf(
+        "[input] TOUCH %s at (%d,%d) raw=(%u,%u) orient=%u screen=%s%s\n",
+        InputActionName(ev.action), static_cast<int>(ev.x),
+        static_cast<int>(ev.y), static_cast<unsigned>(diag.touch_raw_x),
+        static_cast<unsigned>(diag.touch_raw_y),
+        static_cast<unsigned>(g_screen_setup.touch_orientation), ScreenName(),
+        g_menu_open ? " (menu open)" : "");
   } else {
     drivers::Logf("[input] %s %s delta=%d\n", InputSourceName(ev.source),
                   InputActionName(ev.action), static_cast<int>(ev.delta));
@@ -3623,6 +3690,13 @@ void setup() {
     // The panel already shows the last real frame; the first repaint below
     // only has to diff against it, not redraw from a flashed-white glass.
     g_force_full_refresh = false;
+  }
+
+  // One more go at the touch panel now that the panel rail and the SD card
+  // have been up for a while. The first probe runs before any of that, and a
+  // cold bus is exactly when it fails (see TouchGt911::begin).
+  if (!g_touch.present() && g_input.retryTouch()) {
+    drivers::LogLine("[touch] answered on the retry after boot");
   }
 
   g_idle.begin(app::kIdleSleepMs, millis());

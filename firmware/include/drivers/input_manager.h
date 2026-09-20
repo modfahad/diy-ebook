@@ -32,6 +32,11 @@ class InputManager : public hal::IInput {
   void setTouchOrientation(uint8_t packed);
   uint8_t touchOrientation() const;
 
+  // Probes the touch panel again, keeping the orientation already set. For
+  // when it did not answer at boot: a bus that failed once is not a panel
+  // that is missing, and a reboot is a poor way to find that out.
+  bool retryTouch();
+
   bool begin() override;
   void poll(uint32_t now_ms) override;
   bool nextEvent(hal::InputEvent* out) override;

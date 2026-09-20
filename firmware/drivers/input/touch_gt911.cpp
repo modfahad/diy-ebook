@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "board/board_crowpanel_579.h"
@@ -107,16 +108,41 @@ bool TouchGt911::begin() {
     bus_started_ = true;
   }
 
-  resetChip(false);
-  bool ok = ack(kAddrPrimary) && identify(kAddrPrimary);
-  if (!ok) {
-    resetChip(true);
-    ok = ack(kAddrAlt) && identify(kAddrAlt);
+  // Three goes, not one. Observed on the board 2026-09-21: the same wiring
+  // that works after a warm reset can fail to answer on a cold one, which is
+  // what an I2C bus running on the ESP32's internal pull-ups alone looks like
+  // (see the 4.7k note in board_crowpanel_579.h). A dead first probe used to
+  // mean touch was off until the next reboot.
+  bool ok = false;
+  for (uint8_t attempt = 1; attempt <= 3 && !ok; ++attempt) {
+    resetChip(false);
+    ok = ack(kAddrPrimary) && identify(kAddrPrimary);
+    if (!ok) {
+      resetChip(true);
+      ok = ack(kAddrAlt) && identify(kAddrAlt);
+    }
+    if (!ok) {
+      Logf("[touch] attempt %u: no answer at 0x%02X or 0x%02X\n",
+           static_cast<unsigned>(attempt), kAddrPrimary, kAddrAlt);
+      delay(50);
+    }
   }
   if (!ok) {
     info_ = hal::TouchInfo();
-    Logf("[touch] no GT911 on SDA%d/SCL%d -- buttons only\n", board::kTouchSda,
-         board::kTouchScl);
+    // What else is on the bus narrows it down at a glance: nothing at all
+    // means wiring or power, something at another address means the wrong
+    // chip or a strapping problem.
+    uint8_t seen = 0;
+    char found[64];
+    int written = 0;
+    for (uint8_t a = 0x08; a < 0x78 && written < 50; ++a) {
+      if (!ack(a)) continue;
+      ++seen;
+      written += snprintf(found + written, sizeof(found) - written, "0x%02X ", a);
+    }
+    if (seen == 0) snprintf(found, sizeof(found), "nothing");
+    Logf("[touch] no GT911 on SDA%d/SCL%d (I2C scan: %s) -- buttons only\n",
+         board::kTouchSda, board::kTouchScl, found);
     return false;
   }
 

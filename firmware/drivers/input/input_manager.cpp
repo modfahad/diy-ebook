@@ -127,6 +127,26 @@ void InputManager::pumpButton(util::Button& button, hal::InputSource source,
   }
 }
 
+bool InputManager::retryTouch() {
+  if (touch_ == nullptr) return false;
+  const uint8_t orientation = touchOrientation();
+  const bool ok = touch_->begin();
+  diag_.touch_present = ok;
+  if (ok) {
+    const hal::TouchInfo info = touch_->info();
+    mapping_ = util::TouchMapping();
+    mapping_.raw_width = info.raw_width;
+    mapping_.raw_height = info.raw_height;
+    mapping_.out_width = board::kWidth;
+    mapping_.out_height = board::kHeight;
+    setTouchOrientation(orientation);
+    tap_.begin(app::kTouchLongPressMs, app::kTouchSlopPx);
+    touch_down_ = false;
+    touch_frame_ms_ = millis();
+  }
+  return ok;
+}
+
 void InputManager::setTouchOrientation(uint8_t packed) {
   mapping_.swap_xy = (packed & 1) != 0;
   mapping_.invert_x = (packed & 2) != 0;

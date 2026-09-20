@@ -259,6 +259,33 @@ tests pass (test_logic 57, test_net 66, test_qpk 72, test_ui 73), and
 `crowpanel_579`, `touch_test` and `grey_test` all build clean.** Still not run
 on the board.
 
+**Touch runs on the board -- 2026-09-21, first real use.** Flashed from
+Windows over COM6 (development.md has the recipe) and driven by hand. What it
+showed:
+
+- **The GT911 works and the driver reads it.** `raw=(283,375) size=35`, taps
+  and drags both tracked, and a tap opened a library tile
+  (`[library] OK on category Books`).
+- **"Touch is not working" was the clock screen.** Every tap was being seen
+  and then ignored, because the home screen was the one screen with no tap
+  targets -- 80-odd taps logged `no tap targets yet`. A tap anywhere on it now
+  opens the options menu, which is where Library and the rest are named.
+- **The chip does not always answer the first probe.** One cold boot logged
+  `no GT911 on SDA15/SCL16` and touch was dead until a reflash. `begin()` now
+  tries three times, prints an I2C scan when it gives up, and can be retried
+  without a reboot (`InputManager::retryTouch`) -- automatically once the
+  rails have settled, and again whenever the setup screen is opened. This is
+  the weak-pull-up problem the 2026-09-19 run flagged; the 4.7k resistors are
+  still the real fix.
+- **Every tap now says what it did**: `[tap] library: row 3 of 7, opening it`,
+  `[tap] reader: x=700 -> page forward`, `[tap] home: opening the options
+  menu`, and the ignored cases say why. The touch log line carries the mapped
+  point, the chip's own numbers, the orientation and the screen.
+
+**Still not settled: the orientation flags.** Taps land somewhere sensible at
+`touch=0`, but nobody has tapped the two boxes on the setup screen to prove
+it, and nothing is saved to `/DEVICE/screen.txt` yet.
+
 **Smart App Control is on on this PC**, and it blocks every unsigned native
 binary a local build needs: `rustc`, Tauri's CLI, Rollup's native module and
 `hermesc.exe`. So neither app builds or runs from source here; build in CI
