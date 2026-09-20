@@ -34,6 +34,12 @@ constexpr uint16_t kTouchStaleMs = 750;
 // of an 800 px panel each side leaves a 320 px band down the middle that does
 // nothing, for the thumb of whoever is holding it.
 constexpr uint16_t kTouchPageEdgePx = 240;
+// A tap in the top strip of any screen opens the options menu. 72 px is the
+// header every ui:: screen already keeps above its first row (the rule at
+// y = 72), so this takes nothing away from the lists -- and on a reading
+// screen it costs the top of the two page-turn edges, which is the price of
+// touch having any way out of a book at all.
+constexpr uint16_t kTouchMenuBandPx = 72;
 
 // What the touch layer does while the device sleeps. These two are the same
 // decision from opposite ends, and cannot both be had:

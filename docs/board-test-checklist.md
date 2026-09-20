@@ -236,7 +236,9 @@ touch orientation being right.
 | Tap a row in Saved places | It opens that place, same as OK |
 | Scroll Saved places past the twelfth row, then tap the top row | The row you tapped opens, not the one that used to be there |
 | Tap a surah in the surah list | That surah opens — check the number matches, an off-by-one would open its neighbour |
-| Rest a thumb on the glass for a second while reading | Nothing opens. The options menu is hold OK, not hold-on-glass |
+| Tap the top strip (above the header rule) on any screen | The options menu opens. This is how a finger leaves a book: the menu has Close this book, Library and the rest |
+| Tap the top strip on a library list | The menu opens — it must not select the first row, which starts below it at y=84 |
+| Rest a thumb on the glass for a second while reading | Nothing opens. The options menu is hold OK or the top strip, not hold-on-glass |
 
 ## 15. Touch and sleep - added 2026-09-20
 

@@ -3170,6 +3170,17 @@ void HandleRotate(int16_t delta) {
 // Where a tap landed, and what that means on this screen. Taps only ever do
 // what a button already does: open the highlighted thing, or turn a page.
 void HandleTouchTap(int16_t x, int16_t y) {
+  // The strip along the top is the menu, on every screen that is not already
+  // the menu or the setup screen. Without it a finger can turn pages but
+  // never leave the book.
+  if (g_screen_mode != ScreenMode::kHome &&
+      g_screen_mode != ScreenMode::kScreenSetup &&
+      util::InMenuBand(y, app::kTouchMenuBandPx)) {
+    drivers::Logf("[tap] %s: top strip -> options menu\n", ScreenName());
+    OpenOptionsMenu();
+    return;
+  }
+
   switch (g_screen_mode) {
     case ScreenMode::kHome:
       // The clock screen is all photo and clock, with nothing on it to aim

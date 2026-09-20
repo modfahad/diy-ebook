@@ -1630,6 +1630,14 @@ so the next pass does not re-discover the same blocker.
   is a number.
 - **Ghosting rate.** `kPartialsBeforeFullRefresh = 8` was chosen, not
   measured. Raising it means fewer full-screen flashes and more residue.
+- **Quran page-turn time -- MEASURED 2026-09-21, on the board.** Paging
+  forward through Al-Baqarah, one tap per page: **3.7-4.4 s to build the
+  page** (2-3 ayahs, ~530-580 glyphs read off the card and blitted) and
+  **0.65 s for the partial refresh** (copy 44 ms, panel 608 ms). So about
+  4.5 s from finger to new page, and the panel is the *fast* part -- six
+  times the cost is in `ui::QuranScreen::render` walking the glyph index.
+  That is where to look if page turns are to get quicker; the touch path and
+  the refresh add nothing measurable.
 - **Panel rail current during `kFast`.** `kPartial`'s differential waveform
   leaves thin strokes (Arabic harakat, joins) faded and lets ghosting
   accumulate between the periodic full refreshes — visible as the previous

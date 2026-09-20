@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "app/app_config.h"
 #include "board/board_crowpanel_579.h"
 #include "gfx/canvas.h"
 #include "util/screen_setup.h"
@@ -897,6 +898,23 @@ void test_wake_on_touch_mask_adds_the_int_pin_and_nothing_else() {
   }
 }
 
+
+void test_menu_band_is_the_header_strip_and_nothing_below_it() {
+  // The strip a finger presses to leave a book. It has to stop above the
+  // first row of every list (y = 84), or tapping the top row would open the
+  // menu instead of the row.
+  TEST_ASSERT_TRUE(util::InMenuBand(0, app::kTouchMenuBandPx));
+  TEST_ASSERT_TRUE(util::InMenuBand(71, app::kTouchMenuBandPx));
+  TEST_ASSERT_FALSE(util::InMenuBand(72, app::kTouchMenuBandPx));
+  TEST_ASSERT_FALSE(util::InMenuBand(84, app::kTouchMenuBandPx));
+  TEST_ASSERT_FALSE(util::InMenuBand(479, app::kTouchMenuBandPx));
+  TEST_ASSERT_TRUE(app::kTouchMenuBandPx <= 84);
+
+  // Nonsense in, nothing out.
+  TEST_ASSERT_FALSE(util::InMenuBand(-1, app::kTouchMenuBandPx));
+  TEST_ASSERT_FALSE(util::InMenuBand(10, 0));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
 
@@ -965,6 +983,7 @@ int main(int, char**) {
   RUN_TEST(test_screen_setup_keeps_defaults_when_the_file_is_rubbish);
   RUN_TEST(test_screen_setup_tolerates_hand_editing);
 
+  RUN_TEST(test_menu_band_is_the_header_strip_and_nothing_below_it);
   RUN_TEST(test_page_tap_edges_turn_and_the_middle_does_not);
   RUN_TEST(test_page_tap_ignores_nonsense_instead_of_guessing);
   RUN_TEST(test_page_tap_edges_are_the_configured_width);

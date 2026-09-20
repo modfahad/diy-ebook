@@ -92,6 +92,19 @@ inline int8_t PageTapDelta(int16_t x, uint16_t width, uint16_t edge_px) {
   return 0;
 }
 
+// True for a tap in the strip along the top of the screen, which opens the
+// options menu on every screen that has one. It is the only way out of a book
+// by finger: the menu is where "Close this book", "Library" and the rest are
+// named, and a reader holding the device needs somewhere to press that is not
+// a page turn.
+//
+// The strip is the header area every ui:: screen keeps above its first row
+// (the rule at y = 72), so it never overlaps a list row or a shelf cover.
+inline bool InMenuBand(int16_t y, uint16_t band_px) {
+  if (band_px == 0) return false;
+  return y >= 0 && y < static_cast<int16_t>(band_px);
+}
+
 enum class TouchEvent : uint8_t {
   kNone = 0,
   kDown,

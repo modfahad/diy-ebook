@@ -509,6 +509,11 @@ Taps act on three more screens, and only ever do what a button already does:
   bookmarks list keeps no scroll position of its own -- it derives one from
   the selection -- so its hit test asks `scrollTop()` rather than assuming the
   list starts at the top.
+- **A tap in the top strip opens the options menu** (`util::InMenuBand`,
+  `app::kTouchMenuBandPx` = 72 px, the header every screen already keeps above
+  its first row). It is the only way out of a book by finger -- the menu is
+  where "Close this book" and "Library" are named -- and on the clock screen,
+  which has nothing to aim at, a tap anywhere does it.
 - **A page turn by tap goes through `HandleRotate()`**, the wheel's own
   per-screen logic, moved out of `HandleEvent` rather than copied. The clamps,
   the surah boundaries and the Quran's history stack were settled on real
